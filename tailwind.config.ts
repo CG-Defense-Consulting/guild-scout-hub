@@ -61,6 +61,15 @@ export default {
 					'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
 					border: 'hsl(var(--sidebar-border))',
 					ring: 'hsl(var(--sidebar-ring))'
+				},
+				guild: {
+					'brand-bg': 'hsl(var(--brand-bg))',
+					'brand-fg': 'hsl(var(--brand-fg))',
+					'accent-1': 'hsl(var(--accent-1))',
+					'accent-2': 'hsl(var(--accent-2))',
+					success: 'hsl(var(--success))',
+					warning: 'hsl(var(--warning))',
+					danger: 'hsl(var(--danger))'
 				}
 			},
 			borderRadius: {

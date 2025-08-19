@@ -38,6 +38,15 @@ All colors MUST be HSL.
 
     --radius: 0.5rem;
 
+    /* Guild-specific design tokens */
+    --brand-bg: 220 15% 95%;
+    --brand-fg: 220 15% 15%;
+    --accent-1: 212 95% 68%;
+    --accent-2: 262 83% 58%;
+    --success: 142 76% 36%;
+    --warning: 38 92% 50%;
+    --danger: 0 84% 60%;
+
     --sidebar-background: 0 0% 98%;
 
     --sidebar-foreground: 240 5.3% 26.1%;
@@ -83,6 +92,15 @@ All colors MUST be HSL.
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
     --ring: 212.7 26.8% 83.9%;
+
+    /* Guild-specific design tokens - dark mode */
+    --brand-bg: 220 15% 8%;
+    --brand-fg: 220 15% 85%;
+    --accent-1: 212 95% 68%;
+    --accent-2: 262 83% 58%;
+    --success: 142 76% 36%;
+    --warning: 38 92% 50%;
+    --danger: 0 84% 60%;
     --sidebar-background: 240 5.9% 10%;
     --sidebar-foreground: 240 4.8% 95.9%;
     --sidebar-primary: 224.3 76.3% 48%;
