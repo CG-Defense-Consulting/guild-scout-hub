@@ -8,7 +8,7 @@ interface AuthContextType {
   userRole: 'CGDC' | 'PARTNER' | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
-  signUp: (email: string, password: string) => Promise<{ error: any }>;
+  // signUp: (email: string, password: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
 }
 
@@ -22,21 +22,73 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchUserRole = async (userId: string) => {
     try {
-      const { data } = await supabase
+      console.log('=== fetchUserRole Debug ===');
+      console.log('Fetching user role for userId:', userId);
+      console.log('User ID type:', typeof userId);
+      console.log('User ID length:', userId.length);
+      
+      const { data, error } = await supabase
         .from('user_page_entitlements')
         .select('page_index')
         .eq('user_id', userId)
         .single();
 
-      if (data?.page_index) {
-        if (data.page_index.includes('/scouting') || data.page_index.includes('/tracker')) {
-          setUserRole('CGDC');
-        } else if (data.page_index.includes('/hub')) {
-          setUserRole('PARTNER');
-        }
+      if (error) {
+        console.error('Supabase query error:', error);
+        console.error('Error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
+        throw error;
       }
+
+      console.log('Query result:', data);
+      console.log('Data type:', typeof data);
+      console.log('Data keys:', data ? Object.keys(data) : 'null');
+
+      if (data?.page_index) {
+        console.log('Page index value:', data.page_index);
+        console.log('Page index type:', typeof data.page_index);
+        
+        // Parse "0,1,2,4" into [0, 1, 2, 4]
+        const pageIndices = data.page_index.split(',').map(Number);
+        console.log('Parsed page indices:', pageIndices);
+        
+        // Map indices to page routes: 0=scouting, 1=tracker, 2=hub
+        const accessiblePages = pageIndices.map(index => {
+          switch (index) {
+            case 0: return '/scouting';
+            case 1: return '/tracker';
+            case 2: return '/hub';
+            default: return null;
+          }
+        }).filter(Boolean);
+        
+        console.log('Accessible pages:', accessiblePages);
+        
+        // Determine role based on accessible pages
+        if (accessiblePages.includes('/scouting') || accessiblePages.includes('/tracker')) {
+          console.log('Setting user role to: CGDC');
+          setUserRole('CGDC');
+        } else if (accessiblePages.includes('/hub')) {
+          console.log('Setting user role to: PARTNER');
+          setUserRole('PARTNER');
+        } else {
+          console.log('No role determined from accessible pages');
+        }
+      } else {
+        console.log('No page_index found for user');
+        console.log('Full data object:', data);
+      }
+      
+      console.log('=== End fetchUserRole Debug ===');
     } catch (error) {
+      console.error('=== fetchUserRole Error ===');
       console.error('Error fetching user role:', error);
+      console.error('Error stack:', error.stack);
+      console.error('=== End Error ===');
       setUserRole(null);
     }
   };
@@ -79,18 +131,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error };
   };
 
-  const signUp = async (email: string, password: string) => {
-    const redirectUrl = `${window.location.origin}/`;
-    
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: redirectUrl
-      }
-    });
-    return { error };
-  };
+  // const signUp = async (email: string, password: string) => {
+  //   const redirectUrl = `${window.location.origin}/`;
+  //   
+  //   const { error } = await supabase.auth.signUp({
+  //     email,
+  //     password,
+  //     options: {
+  //       emailRedirectTo: redirectUrl
+  //     }
+  //   });
+  //   return { error };
+  // };
 
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -103,7 +155,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     userRole,
     loading,
     signIn,
-    signUp,
+    // signUp,
     signOut,
   };
 
