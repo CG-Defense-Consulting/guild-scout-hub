@@ -44,9 +44,14 @@ export const KanbanBoard = ({
       <CardContent className="p-3">
         <div className="space-y-2">
           <div className="flex items-start justify-between">
-            <Badge variant="secondary" className="font-mono text-xs">
-              {contract.part_number || 'No NSN'}
-            </Badge>
+            <div className="space-y-1">
+              <Badge variant="secondary" className="font-mono text-xs">
+                {contract.solicitation_number || 'No Solicitation #'}
+              </Badge>
+              <div className="text-xs text-muted-foreground font-mono">
+                {contract.national_stock_number || 'No NSN'}
+              </div>
+            </div>
             <Button
               size="sm"
               variant="ghost"
@@ -58,17 +63,17 @@ export const KanbanBoard = ({
           </div>
           
           <p className="text-sm text-foreground font-medium line-clamp-2">
-            {contract.long_description || 'No description'}
+            {contract.description || 'No description'}
           </p>
           
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <div className="flex items-center gap-1">
               <Calendar className="w-3 h-3" />
-              {contract.created_at ? new Date(contract.created_at).toLocaleDateString() : 'N/A'}
+              {contract.quote_issue_date || 'No date'}
             </div>
             <div className="flex items-center gap-1">
               <Package className="w-3 h-3" />
-              {contract.added_by || 'System'}
+              {contract.quantity ? contract.quantity.toLocaleString() : 'No quantity'}
             </div>
           </div>
         </div>

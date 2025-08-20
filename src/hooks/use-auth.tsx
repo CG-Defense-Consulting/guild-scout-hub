@@ -8,7 +8,7 @@ interface AuthContextType {
   userRole: 'CGDC' | 'PARTNER' | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
-  signUp: (email: string, password: string) => Promise<{ error: any }>;
+  // signUp: (email: string, password: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
 }
 
@@ -22,16 +22,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchUserRole = async (userId: string) => {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('user_page_entitlements')
         .select('page_index')
         .eq('user_id', userId)
         .single();
 
+      if (error) {
+        throw error;
+      }
+
       if (data?.page_index) {
-        if (data.page_index.includes('/scouting') || data.page_index.includes('/tracker')) {
+        // Parse "0,1,2,4" into [0, 1, 2, 4]
+        const pageIndices = data.page_index.split(',').map(Number);
+        
+        // Map indices to page routes: 0=scouting, 1=tracker, 2=hub
+        const accessiblePages = pageIndices.map(index => {
+          switch (index) {
+            case 0: return '/scouting';
+            case 1: return '/tracker';
+            case 2: return '/hub';
+            default: return null;
+          }
+        }).filter(Boolean);
+        
+        // Determine role based on accessible pages
+        if (accessiblePages.includes('/scouting') || accessiblePages.includes('/tracker')) {
           setUserRole('CGDC');
-        } else if (data.page_index.includes('/hub')) {
+        } else if (accessiblePages.includes('/hub')) {
           setUserRole('PARTNER');
         }
       }
@@ -79,18 +97,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error };
   };
 
-  const signUp = async (email: string, password: string) => {
-    const redirectUrl = `${window.location.origin}/`;
-    
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: redirectUrl
-      }
-    });
-    return { error };
-  };
+  // const signUp = async (email: string, password: string) => {
+  //   const redirectUrl = `${window.location.origin}/`;
+  //   
+  //   const { error } = await supabase.auth.signUp({
+  //     email,
+  //     password,
+  //     options: {
+  //       emailRedirectTo: redirectUrl
+  //     }
+  //   });
+  //   return { error };
+  // };
 
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -103,7 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     userRole,
     loading,
     signIn,
-    signUp,
+    // signUp,
     signOut,
   };
 

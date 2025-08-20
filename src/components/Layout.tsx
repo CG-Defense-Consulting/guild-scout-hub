@@ -22,7 +22,7 @@ export const Layout = () => {
           <header className="h-14 flex items-center justify-between px-4 border-b bg-guild-brand-bg">
             <div className="flex items-center gap-2">
               <SidebarTrigger />
-              <h1 className="text-lg font-semibold text-guild-brand-fg">Guild</h1>
+              <h1 className="text-lg font-semibold text-guild-brand-fg">GUILD</h1>
             </div>
             
             <div className="flex items-center gap-3">

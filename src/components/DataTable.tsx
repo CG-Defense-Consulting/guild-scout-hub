@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, ChevronUp, ChevronDown } from 'lucide-react';
 
 interface Column {
   accessorKey?: string;
@@ -23,12 +23,87 @@ interface DataTableProps {
   columns: Column[];
   loading?: boolean;
   searchable?: boolean;
+  onSearchChange?: (searchTerm: string) => void;
+  externalSearchTerm?: string;
+  externalSortConfig?: {
+    key: string | null;
+    direction: 'asc' | 'desc';
+  };
+  onSortChange?: (sortConfig: { key: string | null; direction: 'asc' | 'desc' }) => void;
 }
 
-export const DataTable = ({ data, columns, loading, searchable = true }: DataTableProps) => {
+export const DataTable = ({ data, columns, loading, searchable = true, onSearchChange, externalSearchTerm, externalSortConfig, onSortChange }: DataTableProps) => {
   const [currentPage, setCurrentPage] = useState(1);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [localSearchTerm, setLocalSearchTerm] = useState('');
+  const [localSortConfig, setLocalSortConfig] = useState<{
+    key: string | null;
+    direction: 'asc' | 'desc';
+  }>({ key: null, direction: 'asc' });
   const itemsPerPage = 10;
+
+  // Use external search term if provided, otherwise use local
+  const searchTerm = externalSearchTerm !== undefined ? externalSearchTerm : localSearchTerm;
+  
+  // Use external sort config if provided, otherwise use local
+  const sortConfig = externalSortConfig !== undefined ? externalSortConfig : localSortConfig;
+
+  // Sorting function
+  const sortData = (data: any[]) => {
+    if (!sortConfig.key) return data;
+
+    return [...data].sort((a, b) => {
+      let aValue = a[sortConfig.key!];
+      let bValue = b[sortConfig.key!];
+
+      // Handle null/undefined values
+      if (aValue == null) aValue = '';
+      if (bValue == null) bValue = '';
+
+      // Determine if values are numeric and sort accordingly
+      const aNum = Number(aValue);
+      const bNum = Number(bValue);
+      
+      // Check if both values are valid numbers
+      if (!isNaN(aNum) && !isNaN(bNum)) {
+        // Numeric sorting
+        if (aNum < bNum) {
+          return sortConfig.direction === 'asc' ? -1 : 1;
+        }
+        if (aNum > bNum) {
+          return sortConfig.direction === 'asc' ? 1 : -1;
+        }
+        return 0;
+      } else {
+        // String sorting for non-numeric values
+        aValue = String(aValue).toLowerCase();
+        bValue = String(bValue).toLowerCase();
+
+        if (aValue < bValue) {
+          return sortConfig.direction === 'asc' ? -1 : 1;
+        }
+        if (aValue > bValue) {
+          return sortConfig.direction === 'asc' ? 1 : -1;
+        }
+        return 0;
+      }
+    });
+  };
+
+  // Handle column sorting
+  const handleSort = (key: string) => {
+    const newSortConfig = {
+      key,
+      direction: sortConfig.key === key && sortConfig.direction === 'asc' ? 'desc' : 'asc'
+    };
+    
+    if (onSortChange) {
+      onSortChange(newSortConfig);
+    } else {
+      setLocalSortConfig(newSortConfig);
+    }
+    
+    setCurrentPage(1); // Reset to first page when sorting
+  };
 
   const filteredData = searchTerm
     ? data.filter(item =>
@@ -38,9 +113,12 @@ export const DataTable = ({ data, columns, loading, searchable = true }: DataTab
       )
     : data;
 
-  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+  // Apply sorting to filtered data
+  const sortedData = sortData(filteredData);
+
+  const totalPages = Math.ceil(sortedData.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedData = filteredData.slice(startIndex, startIndex + itemsPerPage);
+  const paginatedData = sortedData.slice(startIndex, startIndex + itemsPerPage);
 
   if (loading) {
     return (
@@ -59,7 +137,14 @@ export const DataTable = ({ data, columns, loading, searchable = true }: DataTab
           <Input
             placeholder="Search all fields..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (onSearchChange) {
+                onSearchChange(value);
+              } else {
+                setLocalSearchTerm(value);
+              }
+            }}
             className="max-w-sm"
           />
         </div>
@@ -69,9 +154,31 @@ export const DataTable = ({ data, columns, loading, searchable = true }: DataTab
         <Table>
           <TableHeader>
             <TableRow>
-              {columns.map((column) => (
-                <TableHead key={column.accessorKey}>{column.header}</TableHead>
-              ))}
+              {columns.map((column) => {
+                const key = column.accessorKey || column.id;
+                const isSorted = sortConfig.key === key;
+                
+                return (
+                  <TableHead 
+                    key={key}
+                    className="cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() => key && handleSort(key)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span>{column.header}</span>
+                      {isSorted && (
+                        <span className="text-guild-accent-1">
+                          {sortConfig.direction === 'asc' ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </TableHead>
+                );
+              })}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -105,8 +212,8 @@ export const DataTable = ({ data, columns, loading, searchable = true }: DataTab
       {totalPages > 1 && (
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
-            Showing {startIndex + 1} to {Math.min(startIndex + itemsPerPage, filteredData.length)} of{' '}
-            {filteredData.length} results
+            Showing {startIndex + 1} to {Math.min(startIndex + itemsPerPage, sortedData.length)} of{' '}
+            {sortedData.length} results
           </p>
           
           <div className="flex items-center gap-2">
