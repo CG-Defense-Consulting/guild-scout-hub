@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -13,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { useUpdateDestinations } from '@/hooks/use-database';
 import { 
   FileText, 
   Upload, 
@@ -34,6 +36,42 @@ interface ContractDetailProps {
 
 export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailProps) => {
   const { toast } = useToast();
+  const updateDestinations = useUpdateDestinations();
+  const [destinations, setDestinations] = useState<Array<{ location: string; quantity: string }>>([]);
+  
+  // Calculate total destination quantity
+  const totalDestinationQuantity = destinations.reduce((total, dest) => {
+    const qty = parseInt(dest.quantity) || 0;
+    return total + qty;
+  }, 0);
+  
+  // Load existing destinations when contract changes
+  useEffect(() => {
+    if (contract?.destination_json && Array.isArray(contract.destination_json)) {
+      setDestinations(contract.destination_json);
+    } else {
+      setDestinations([]);
+    }
+  }, [contract]);
+  
+  const handleSaveDestinations = async () => {
+    try {
+      await updateDestinations.mutateAsync({ 
+        id: contract.id, 
+        destinations 
+      });
+      toast({
+        title: 'Destinations Saved',
+        description: 'Destination information has been updated successfully.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to save destinations. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
 
   if (!contract) return null;
 
@@ -56,7 +94,7 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
         <SheetHeader className="pb-4">
           <SheetTitle className="flex items-center gap-2">
             <FileText className="w-5 h-5" />
-            Contract Details: {contract.part_number || 'Unknown NSN'}
+            Contract Details: {contract.solicitation_number || 'Unknown Solicitation'}
           </SheetTitle>
           <SheetDescription>
             Manage contract lifecycle, documentation, and partner coordination
@@ -80,11 +118,12 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="part-number">Part Number / NSN</Label>
+                    <Label htmlFor="solicitation-number">Solicitation Number</Label>
                     <Input 
-                      id="part-number" 
-                      defaultValue={contract.part_number} 
+                      id="solicitation-number" 
+                      defaultValue={contract.solicitation_number} 
                       className="font-mono"
+                      disabled
                     />
                   </div>
                   <div>
@@ -95,19 +134,40 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="part-number">NSN</Label>
+                    <Input 
+                      id="part-number" 
+                      defaultValue={contract.national_stock_number} 
+                      className="font-mono"
+                      disabled
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="quantity">Quantity</Label>
+                    <Input 
+                      id="quantity" 
+                      defaultValue={contract.quantity?.toLocaleString() || '0'} 
+                      disabled
+                    />
+                  </div>
+                </div>
+
                 <div>
                   <Label htmlFor="description">Description</Label>
                   <Textarea 
                     id="description" 
-                    defaultValue={contract.long_description} 
+                    defaultValue={contract.description} 
                     rows={3}
+                    disabled
                   />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="rfq-link">RFQ Reference</Label>
-                    <Input id="rfq-link" defaultValue={contract.rfq_link} />
+                    <Label htmlFor="quote-issue-date">Issue Date</Label>
+                    <Input id="quote-issue-date" defaultValue={contract.quote_issue_date} disabled />
                   </div>
                   <div>
                     <Label htmlFor="added-by">Added By</Label>
@@ -115,9 +175,10 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                   </div>
                 </div>
 
-                <div className="flex gap-2 pt-4">
-                  <Button>Save Changes</Button>
-                  <Button variant="outline">Revert</Button>
+                <div className="pt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Contract details are read-only. Use the status controls above to manage the contract lifecycle.
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -243,6 +304,93 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                     <Label htmlFor="priority">Priority Level</Label>
                     <Input id="priority" placeholder="High, Medium, Low" />
                   </div>
+                </div>
+
+                {/* Destinations Section */}
+                <div className="border-t pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <Label className="text-base font-medium">Destinations & Quantities</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const newDestinations = [...destinations, { location: '', quantity: '' }];
+                        setDestinations(newDestinations);
+                      }}
+                    >
+                      + Add Destination
+                    </Button>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    {destinations.map((dest, index) => (
+                      <div key={index} className="grid grid-cols-3 gap-3 items-end">
+                        <div>
+                          <Label htmlFor={`location-${index}`}>Location</Label>
+                          <Input
+                            id={`location-${index}`}
+                            placeholder="e.g., Fort Hood, TX"
+                            value={dest.location}
+                            onChange={(e) => {
+                              const newDestinations = [...destinations];
+                              newDestinations[index].location = e.target.value;
+                              setDestinations(newDestinations);
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor={`quantity-${index}`}>Quantity</Label>
+                          <Input
+                            id={`quantity-${index}`}
+                            type="number"
+                            placeholder="Qty"
+                            value={dest.quantity}
+                            onChange={(e) => {
+                              const newDestinations = [...destinations];
+                              newDestinations[index].quantity = e.target.value;
+                              setDestinations(newDestinations);
+                            }}
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            const newDestinations = destinations.filter((_, i) => i !== index);
+                            setDestinations(newDestinations);
+                          }}
+                          className="h-10"
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {destinations.length > 0 && (
+                    <div className="mt-4 p-3 bg-muted rounded-lg">
+                      <Label className="text-sm font-medium mb-2 block">Total Quantity: {totalDestinationQuantity}</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Contract quantity: {contract.quantity?.toLocaleString() || '0'}
+                      </p>
+                      {totalDestinationQuantity !== contract.quantity && (
+                        <p className="text-xs text-orange-600 mt-1">
+                          ⚠️ Destination quantities don't match contract quantity
+                        </p>
+                      )}
+                      
+                      <Button
+                        onClick={handleSaveDestinations}
+                        disabled={updateDestinations.isPending}
+                        className="mt-3 w-full"
+                        size="sm"
+                      >
+                        {updateDestinations.isPending ? 'Saving...' : 'Save Destinations'}
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 <Button 

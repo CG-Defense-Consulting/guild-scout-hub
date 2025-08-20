@@ -1,4 +1,4 @@
-# Guild - Defense Contracting Platform
+# GUILD - Defense Contracting Platform
 
 A modern web application for defense contracting workflow management, built with React, TypeScript, Tailwind CSS, and Supabase.
 
@@ -37,4 +37,4 @@ A modern web application for defense contracting workflow management, built with
 3. **Start development**: `npm run dev`
 4. **Visit `/auth`** to create accounts and sign in
 
-The Guild app is now fully functional with authentication, role-based routing, and all three main pages connected to your Supabase backend.
+The GUILD app is now fully functional with authentication, role-based routing, and all three main pages connected to your Supabase backend.
