@@ -161,6 +161,7 @@ export type Database = {
           id: string
           long_description: string | null
           part_number: string | null
+          stage_timeline: Json | null
         }
         Insert: {
           added_by?: string | null
@@ -170,6 +171,7 @@ export type Database = {
           id?: string
           long_description?: string | null
           part_number?: string | null
+          stage_timeline?: Json | null
         }
         Update: {
           added_by?: string | null
@@ -179,6 +181,7 @@ export type Database = {
           id?: string
           long_description?: string | null
           part_number?: string | null
+          stage_timeline?: Json | null
         }
         Relationships: [
           {

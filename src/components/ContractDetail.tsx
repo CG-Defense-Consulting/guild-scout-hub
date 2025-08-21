@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { useUpdateDestinations } from '@/hooks/use-database';
+import { useUpdateDestinations, StageTimelineEntry } from '@/hooks/use-database';
 import { 
   FileText, 
   Upload, 
@@ -82,11 +82,15 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
     });
   };
 
-  const timelineEvents = [
-    { date: contract.created_at, event: 'Contract added to queue', type: 'info' },
-    { date: new Date().toISOString(), event: 'Analysis phase started', type: 'success' },
-    // Add more synthetic timeline events as needed
-  ];
+  // Parse the stage timeline from the contract data
+  const stageTimeline: StageTimelineEntry[] = contract?.stage_timeline 
+    ? (Array.isArray(contract.stage_timeline) ? contract.stage_timeline : [])
+    : [];
+
+  // Sort timeline by timestamp (most recent first)
+  const sortedTimeline = [...stageTimeline].sort((a, b) => 
+    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -414,33 +418,59 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {timelineEvents.map((event, index) => (
-                    <div key={index} className="flex items-start gap-3 pb-4 border-b last:border-b-0">
-                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-guild-accent-1/20 flex items-center justify-center">
-                        {event.type === 'success' ? (
+                  {sortedTimeline.length > 0 ? (
+                    sortedTimeline.map((entry, index) => (
+                      <div key={index} className="flex items-start gap-3 pb-4 border-b last:border-b-0">
+                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-guild-accent-1/20 flex items-center justify-center">
                           <CheckCircle2 className="w-4 h-4 text-guild-success" />
-                        ) : (
-                          <Clock className="w-4 h-4 text-guild-accent-1" />
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-medium">{event.event}</p>
-                        <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
-                          <Calendar className="w-3 h-3" />
-                          {new Date(event.date).toLocaleDateString()}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="font-medium">{entry.stage}</p>
+                            <Badge variant="outline" className="text-xs">
+                              {entry.stage}
+                            </Badge>
+                          </div>
+                          {entry.notes && (
+                            <p className="text-sm text-muted-foreground mb-2">
+                              {entry.notes}
+                            </p>
+                          )}
+                          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                            <div className="flex items-center gap-1">
+                              <Calendar className="w-3 h-3" />
+                              {new Date(entry.timestamp).toLocaleDateString()} at {new Date(entry.timestamp).toLocaleTimeString()}
+                            </div>
+                            {entry.moved_by && (
+                              <div className="flex items-center gap-1">
+                                <User className="w-3 h-3" />
+                                {entry.moved_by}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-8">
+                      <Clock className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                      <h3 className="text-lg font-semibold mb-2">No Timeline Data</h3>
+                      <p className="text-muted-foreground">
+                        Stage transitions will appear here as the contract progresses.
+                      </p>
                     </div>
-                  ))}
+                  )}
                 </div>
 
-                <div className="mt-6 p-4 bg-muted rounded-lg">
-                  <h4 className="font-medium mb-2">Timeline Notes</h4>
-                  <p className="text-sm text-muted-foreground">
-                    This timeline shows synthetic events for demonstration. 
-                    Real timeline tracking will be implemented with actual contract workflows.
-                  </p>
-                </div>
+                {sortedTimeline.length > 0 && (
+                  <div className="mt-6 p-4 bg-muted rounded-lg">
+                    <h4 className="font-medium mb-2">Timeline Summary</h4>
+                    <p className="text-sm text-muted-foreground">
+                      Showing {sortedTimeline.length} stage transition{sortedTimeline.length !== 1 ? 's' : ''}.
+                      Most recent changes appear at the top.
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

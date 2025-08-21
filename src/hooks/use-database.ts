@@ -1,6 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
+// Stage timeline entry interface
+export interface StageTimelineEntry {
+  stage: string;
+  timestamp: string;
+  moved_by?: string;
+  notes?: string;
+}
+
 // RFQ Index Extract hooks
 export const useRfqData = (filters?: Record<string, any>) => {
   return useQuery({
@@ -298,6 +306,8 @@ export const useContractQueue = () => {
       // Transform the data to flatten the nested structure for easier use
       let transformedData = data?.map(contract => ({
         ...contract,
+        // Ensure current_stage has a default value
+        current_stage: contract.current_stage || 'Analysis',
         // Flatten the nested RFQ data
         solicitation_number: contract.rfq_index_extract?.solicitation_number,
         national_stock_number: contract.rfq_index_extract?.national_stock_number,
@@ -336,6 +346,14 @@ export const useAddToQueue = (userId?: string) => {
   
   return useMutation({
     mutationFn: async (rfqData: any) => {
+      // Initialize the stage timeline with the first entry
+      const initialTimeline: StageTimelineEntry[] = [{
+        stage: 'Analysis',
+        timestamp: new Date().toISOString(),
+        moved_by: userId || null,
+        notes: 'Contract added to queue'
+      }];
+
       // Create a minimal record - only store user ID and timestamp
       const queueRecord = {
         // Set the id to reference the rfq_index_extract record
@@ -343,10 +361,11 @@ export const useAddToQueue = (userId?: string) => {
         // Leave these fields blank as requested
         part_number: null,
         long_description: null,
-
         destination_json: null,
         added_by: userId,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        current_stage: 'Analysis',
+        stage_timeline: initialTimeline
       };
 
       // Insert new record - the id field will automatically reference rfq_index_extract.id
@@ -385,14 +404,41 @@ export const useUpdateQueueStatus = () => {
   const queryClient = useQueryClient();
   
   return useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: string }) => {
+    mutationFn: async ({ id, status, userId }: { id: string; status: string; userId?: string }) => {
+      // First, get the current record to retrieve existing timeline
+      const { data: currentRecord, error: fetchError } = await supabase
+        .from('universal_contract_queue')
+        .select('stage_timeline, current_stage')
+        .eq('id', id)
+        .single();
+      
+      if (fetchError) throw fetchError;
+      
+      // Parse existing timeline or create new array
+      const existingTimeline: StageTimelineEntry[] = currentRecord?.stage_timeline ? 
+        (Array.isArray(currentRecord.stage_timeline) ? currentRecord.stage_timeline as StageTimelineEntry[] : []) : 
+        [];
+      
+      // Create new timeline entry
+      const newTimelineEntry: StageTimelineEntry = {
+        stage: status,
+        timestamp: new Date().toISOString(),
+        moved_by: userId || null,
+        notes: `Moved from ${currentRecord?.current_stage || 'Unknown'} to ${status}`
+      };
+      
+      // Add new entry to timeline
+      const updatedTimeline = [...existingTimeline, newTimelineEntry];
+      
+      // Update the record with new stage and timeline
       const { data, error } = await supabase
         .from('universal_contract_queue')
         .update({ 
-          // Add status field to queue items when updating lifecycle
-          // Status is now handled by current_stage column
+          current_stage: status,
+          stage_timeline: updatedTimeline
         })
         .eq('id', id);
+        
       if (error) throw error;
       return data;
     },
