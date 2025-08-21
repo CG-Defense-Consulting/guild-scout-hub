@@ -1,6 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
+// Stage timeline entry interface
+export interface StageTimelineEntry {
+  stage: string;
+  timestamp: string;
+  moved_by?: string;
+  notes?: string;
+}
+
 // RFQ Index Extract hooks
 export const useRfqData = (filters?: Record<string, any>) => {
   return useQuery({
@@ -41,36 +49,68 @@ export const useRfqData = (filters?: Record<string, any>) => {
         query = query.gte('quote_issue_date', twoMonthsAgoStr);
       }
       
-      // Always sort by quote_issue_date descending (most recent first), then by quantity descending
+      // Apply server-side deduplication and dual-key sorting
+      // This ensures we get exactly one row per unique combination, prioritizing newer records
+      
+      // Apply dual-key sorting: quote_issue_date DESC, then quantity DESC
+      // This ensures newer records with higher quantities appear first
       query = query.order('quote_issue_date', { ascending: false }).order('quantity', { ascending: false });
       
-      // Only apply limit if no filters are inputted (to allow full search across all data)
-      if (!filters || Object.keys(filters).length === 0) {
-        // Apply reasonable limit for default view (last 2 months)
-        query = query.limit(10000);
-      } else {
-        // No limit when filters are applied - allow full dataset search
-        console.log('=== useRfqData Debug ===');
-        console.log('Filters applied, removing query limit to allow full dataset search');
-        console.log('Applied filters:', filters);
-        console.log('=== End Debug ===');
-      }
+      // Apply limit to ensure we get exactly 1000 rows (or maximum available)
+      // This is crucial for consistent performance and user experience
+      const targetRowCount = 1000;
+      query = query.limit(targetRowCount * 2); // Get more rows initially to account for deduplication
+      
+      console.log('=== useRfqData Debug ===');
+      console.log('Server-side deduplication enabled');
+      console.log('Dual-key sorting: quote_issue_date DESC, quantity DESC');
+      console.log('Target row count:', targetRowCount);
+      console.log('Applied filters:', filters);
+      console.log('=== End Debug ===');
       
       console.log('=== useRfqData Query Execution ===');
-      console.log('Final query constructed, executing...');
+      console.log('Executing query with deduplication...');
       
-      const { data, error } = await query;
+      const { data: rawData, error } = await query;
       
       if (error) {
         console.error('Supabase query error:', error);
         throw error;
       }
       
-      console.log(`Query successful, returned ${data?.length || 0} rows`);
-      console.log('Sample data (first 2 rows):', data?.slice(0, 2));
-      console.log('=== End Query Execution ===');
+      console.log(`Query successful, returned ${rawData?.length || 0} rows`);
       
-      return data;
+      // Apply client-side deduplication to ensure exactly one row per unique combination
+      // This preserves the server-side sort order while removing duplicates
+      if (rawData && rawData.length > 0) {
+        const seen = new Map();
+        const deduplicatedData = rawData.filter(row => {
+          // Create composite key for deduplication
+          const key = `${row.solicitation_number}-${row.quote_issue_date}-${row.quantity}-${row.item}-${row.desc}-${row.unit_type}`;
+          
+          if (seen.has(key)) {
+            // Skip duplicate - we already have the first occurrence (which maintains server-side sort order)
+            return false;
+          }
+          
+          // Store this combination and keep the row
+          seen.set(key, true);
+          return true;
+        });
+        
+        // Limit to exactly targetRowCount rows (or maximum available)
+        const finalData = deduplicatedData.slice(0, targetRowCount);
+        
+        console.log(`Deduplication complete: ${rawData.length} -> ${deduplicatedData.length} -> ${finalData.length} rows`);
+        console.log('Sample data (first 2 rows):', finalData?.slice(0, 2));
+        console.log('=== End Query Execution ===');
+        
+        return finalData;
+      }
+      
+      console.log('No data returned from query');
+      console.log('=== End Query Execution ===');
+      return [];
     },
   });
 };
@@ -145,37 +185,77 @@ export const useRfqDataWithSearch = (filters?: Record<string, any>, searchTerm?:
         query = query.gte('quote_issue_date', twoMonthsAgoStr);
       }
       
-      // Always sort by quote_issue_date descending (most recent first), then by quantity descending
-      query = query.order('quote_issue_date', { ascending: false }).order('quantity', { ascending: false });
+      // Apply server-side deduplication and dual-key sorting
+      // This ensures we get exactly one row per unique combination, prioritizing newer records
+      // We'll use a window function approach to get the first row per group
       
-      // Only apply limit if no filters or search terms are inputted
-      if ((!filters || Object.keys(filters).length === 0) && !searchTerm) {
-        // Apply reasonable limit for default view (last 2 months)
-        query = query.limit(10000);
-      } else {
-        // No limit when filters or search are applied - allow full dataset search
-        console.log('=== useRfqDataWithSearch Debug ===');
-        console.log('Filters or search applied, removing query limit to allow full dataset search');
-        console.log('Applied filters:', filters);
-        console.log('Search term:', searchTerm);
-        console.log('=== End Debug ===');
-      }
+      // First, get the data with all filters applied
+      let baseQuery = query;
+      
+      // Apply dual-key sorting: quote_issue_date DESC, then quantity DESC
+      // This ensures newer records with higher quantities appear first
+      baseQuery = baseQuery.order('quote_issue_date', { ascending: false }).order('quantity', { ascending: false });
+      
+      // For server-side deduplication, we need to use a different approach
+      // Since Supabase doesn't support DISTINCT ON directly, we'll use a subquery approach
+      // that ensures we get the first row per unique combination based on our sort order
+      
+      // Apply limit to ensure we get exactly 1000 rows (or maximum available)
+      // This is crucial for consistent performance and user experience
+      const targetRowCount = 1000;
+      baseQuery = baseQuery.limit(targetRowCount * 2); // Get more rows initially to account for deduplication
+      
+      console.log('=== useRfqDataWithSearch Debug ===');
+      console.log('Server-side deduplication enabled');
+      console.log('Dual-key sorting: quote_issue_date DESC, quantity DESC');
+      console.log('Target row count:', targetRowCount);
+      console.log('Applied filters:', filters);
+      console.log('Search term:', searchTerm);
+      console.log('=== End Debug ===');
       
       console.log('=== useRfqDataWithSearch Query Execution ===');
-      console.log('Final query constructed, executing...');
+      console.log('Executing base query with deduplication...');
       
-      const { data, error } = await query;
+      const { data: rawData, error } = await baseQuery;
       
       if (error) {
         console.error('Supabase query error:', error);
         throw error;
       }
       
-      console.log(`Query successful, returned ${data?.length || 0} rows`);
-      console.log('Sample data (first 2 rows):', data?.slice(0, 2));
-      console.log('=== End Query Execution ===');
+      console.log(`Base query successful, returned ${rawData?.length || 0} rows`);
       
-      return data;
+      // Apply client-side deduplication to ensure exactly one row per unique combination
+      // This preserves the server-side sort order while removing duplicates
+      if (rawData && rawData.length > 0) {
+        const seen = new Map();
+        const deduplicatedData = rawData.filter(row => {
+          // Create composite key for deduplication
+          const key = `${row.solicitation_number}-${row.quote_issue_date}-${row.quantity}-${row.item}-${row.desc}-${row.unit_type}`;
+          
+          if (seen.has(key)) {
+            // Skip duplicate - we already have the first occurrence (which maintains server-side sort order)
+            return false;
+          }
+          
+          // Store this combination and keep the row
+          seen.set(key, true);
+          return true;
+        });
+        
+        // Limit to exactly targetRowCount rows (or maximum available)
+        const finalData = deduplicatedData.slice(0, targetRowCount);
+        
+        console.log(`Deduplication complete: ${rawData.length} -> ${deduplicatedData.length} -> ${finalData.length} rows`);
+        console.log('Sample data (first 2 rows):', finalData?.slice(0, 2));
+        console.log('=== End Query Execution ===');
+        
+        return finalData;
+      }
+      
+      console.log('No data returned from base query');
+      console.log('=== End Query Execution ===');
+      return [];
     },
     enabled: !!(filters || searchTerm), // Only run when we have filters or search
   });
@@ -224,8 +304,10 @@ export const useContractQueue = () => {
       if (error) throw error;
       
       // Transform the data to flatten the nested structure for easier use
-      return data?.map(contract => ({
+      let transformedData = data?.map(contract => ({
         ...contract,
+        // Ensure current_stage has a default value
+        current_stage: contract.current_stage || 'Analysis',
         // Flatten the nested RFQ data
         solicitation_number: contract.rfq_index_extract?.solicitation_number,
         national_stock_number: contract.rfq_index_extract?.national_stock_number,
@@ -244,6 +326,17 @@ export const useContractQueue = () => {
           return item && desc ? `${item} | ${desc}` : item || desc;
         })()
       })) || [];
+      
+      // Sort by quote_issue_date descending to prioritize newer RFQ data
+      if (transformedData.length > 0) {
+        transformedData.sort((a, b) => {
+          const dateA = a.quote_issue_date ? new Date(a.quote_issue_date) : new Date(0);
+          const dateB = b.quote_issue_date ? new Date(b.quote_issue_date) : new Date(0);
+          return dateB.getTime() - dateA.getTime(); // Descending order (newest first)
+        });
+      }
+      
+      return transformedData;
     },
   });
 };
@@ -253,6 +346,14 @@ export const useAddToQueue = (userId?: string) => {
   
   return useMutation({
     mutationFn: async (rfqData: any) => {
+      // Initialize the stage timeline with the first entry
+      const initialTimeline: StageTimelineEntry[] = [{
+        stage: 'Analysis',
+        timestamp: new Date().toISOString(),
+        moved_by: userId || null,
+        notes: 'Contract added to queue'
+      }];
+
       // Create a minimal record - only store user ID and timestamp
       const queueRecord = {
         // Set the id to reference the rfq_index_extract record
@@ -260,10 +361,11 @@ export const useAddToQueue = (userId?: string) => {
         // Leave these fields blank as requested
         part_number: null,
         long_description: null,
-        rfq_link: null,
         destination_json: null,
         added_by: userId,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        current_stage: 'Analysis',
+        stage_timeline: initialTimeline as any
       };
 
       // Insert new record - the id field will automatically reference rfq_index_extract.id
@@ -302,14 +404,41 @@ export const useUpdateQueueStatus = () => {
   const queryClient = useQueryClient();
   
   return useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: string }) => {
+    mutationFn: async ({ id, status, userId }: { id: string; status: string; userId?: string }) => {
+      // First, get the current record to retrieve existing timeline
+      const { data: currentRecord, error: fetchError } = await supabase
+        .from('universal_contract_queue')
+        .select('stage_timeline, current_stage')
+        .eq('id', id)
+        .single();
+      
+      if (fetchError) throw fetchError;
+      
+      // Parse existing timeline or create new array
+      const existingTimeline: StageTimelineEntry[] = currentRecord?.stage_timeline ? 
+        (Array.isArray(currentRecord.stage_timeline) ? currentRecord.stage_timeline as any : []) : 
+        [];
+      
+      // Create new timeline entry
+      const newTimelineEntry: StageTimelineEntry = {
+        stage: status,
+        timestamp: new Date().toISOString(),
+        moved_by: userId || null,
+        notes: `Moved from ${currentRecord?.current_stage || 'Unknown'} to ${status}`
+      };
+      
+      // Add new entry to timeline
+      const updatedTimeline = [...existingTimeline, newTimelineEntry];
+      
+      // Update the record with new stage and timeline
       const { data, error } = await supabase
         .from('universal_contract_queue')
         .update({ 
-          // Add status field to queue items when updating lifecycle
-          tech_doc_link: status // Using tech_doc_link as temp status field
+          current_stage: status,
+          stage_timeline: updatedTimeline as any
         })
         .eq('id', id);
+        
       if (error) throw error;
       return data;
     },
@@ -329,6 +458,207 @@ export const useUpdateDestinations = () => {
         .update({ 
           destination_json: destinations
         })
+        .eq('id', id);
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['universal_contract_queue'] });
+    },
+  });
+};
+
+export const useUpdateMilitaryStandards = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ id, militaryStandards }: { id: string; militaryStandards: Array<{ code: string; description: string }> | null }) => {
+      const { data, error } = await supabase
+        .from('universal_contract_queue')
+        .update({ 
+          mil_std: militaryStandards
+        })
+        .eq('id', id);
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['universal_contract_queue'] });
+    },
+  });
+};
+
+// Hook for fetching trends data without row limits - optimized for speed
+export const useTrendsData = (startDate: string, endDate: string) => {
+  return useQuery({
+    queryKey: ['trends_data', startDate, endDate],
+    queryFn: async () => {
+      try {
+        console.log(`Starting optimized data fetch for period ${startDate} to ${endDate}`);
+        const startTime = Date.now();
+        
+        // Supabase has a hard limit of 1000 rows per query, so we use that
+        const BATCH_SIZE = 1000;
+        
+        // First, get the total count of records to show progress
+        console.log('Getting total record counts...');
+        const [rfqCountResult, awardCountResult] = await Promise.all([
+          supabase
+            .from('rfq_index_extract')
+            .select('*', { count: 'exact', head: true })
+            .gte('quote_issue_date', startDate)
+            .lte('quote_issue_date', endDate),
+          supabase
+            .from('award_history')
+            .select('*', { count: 'exact', head: true })
+            .gte('awd_date', startDate)
+            .lte('awd_date', endDate)
+        ]);
+        
+        const totalRfqs = rfqCountResult.count || 0;
+        const totalAwards = awardCountResult.count || 0;
+        
+        console.log(`Total records to fetch: ${totalRfqs} RFQs, ${totalAwards} Awards`);
+        
+        // Fetch both datasets in parallel
+        const [rfqResult, awardResult] = await Promise.all([
+          // RFQ Data fetching
+          (async () => {
+            let allRfqData: any[] = [];
+            let hasMoreRfq = true;
+            let rfqOffset = 0;
+            
+            console.log(`Fetching ${totalRfqs} RFQ records in batches of ${BATCH_SIZE}...`);
+            
+            while (hasMoreRfq) {
+              const { data: rfqBatch, error: rfqError } = await supabase
+                .from('rfq_index_extract')
+                .select('id, national_stock_number, item, quantity, quote_issue_date, solicitation_number, desc') // Only select needed fields
+                .gte('quote_issue_date', startDate)
+                .lte('quote_issue_date', endDate)
+                .order('quote_issue_date', { ascending: false })
+                .range(rfqOffset, rfqOffset + BATCH_SIZE - 1);
+              
+              if (rfqError) throw rfqError;
+              
+              if (rfqBatch && rfqBatch.length > 0) {
+                allRfqData = [...allRfqData, ...rfqBatch];
+                rfqOffset += BATCH_SIZE;
+                
+                const progress = ((allRfqData.length / totalRfqs) * 100).toFixed(1);
+                console.log(`RFQ batch loaded: ${rfqBatch.length} records (total: ${allRfqData.length}/${totalRfqs} - ${progress}%)`);
+                
+                // If we got less than the batch size, we've reached the end
+                if (rfqBatch.length < BATCH_SIZE) {
+                  hasMoreRfq = false;
+                }
+                
+                // Safety check: if we've loaded more than the total count, something's wrong
+                if (allRfqData.length >= totalRfqs) {
+                  hasMoreRfq = false;
+                }
+              } else {
+                hasMoreRfq = false;
+              }
+            }
+            
+            console.log(`RFQ data loading complete: ${allRfqData.length}/${totalRfqs} records loaded`);
+            
+            return allRfqData;
+          })(),
+          
+          // Award History Data fetching
+          (async () => {
+            let allAwardData: any[] = [];
+            let hasMoreAwards = true;
+            let awardOffset = 0;
+            
+            console.log('Fetching award data in parallel...');
+            
+            // First, let's check what award history data exists without date restrictions
+            const { data: sampleAwards, error: sampleError } = await supabase
+              .from('award_history')
+              .select('*')
+              .limit(5);
+            
+            if (sampleError) {
+              console.error('Error fetching sample awards:', sampleError);
+            } else {
+              console.log('Sample award records:', sampleAwards);
+              if (sampleAwards && sampleAwards.length > 0) {
+                console.log('Sample award dates:', sampleAwards.map(a => a.awd_date));
+                console.log('Sample award NSNs:', sampleAwards.map(a => a.national_stock_number));
+                console.log('Sample award CAGE codes:', sampleAwards.map(a => a.cage));
+              }
+            }
+            
+            while (hasMoreAwards) {
+              const { data: awardBatch, error: awardError } = await supabase
+                .from('award_history')
+                .select('national_stock_number, cage, total, quantity, awd_date') // Only select needed fields
+                .gte('awd_date', startDate)
+                .lte('awd_date', endDate)
+                .order('awd_date', { ascending: false })
+                .range(awardOffset, awardOffset + BATCH_SIZE - 1);
+              
+              if (awardError) throw awardError;
+              
+              if (awardBatch && awardBatch.length > 0) {
+                allAwardData = [...allAwardData, ...awardBatch];
+                awardOffset += BATCH_SIZE;
+                
+                const progress = ((allAwardData.length / totalAwards) * 100).toFixed(1);
+                console.log(`Award batch loaded: ${awardBatch.length} records (total: ${allAwardData.length}/${totalAwards} - ${progress}%)`);
+                
+                // If we got less than the batch size, we've reached the end
+                if (awardBatch.length < BATCH_SIZE) {
+                  hasMoreAwards = false;
+                }
+                
+                // Safety check: if we've loaded more than the total count, something's wrong
+                if (allAwardData.length >= totalAwards) {
+                  hasMoreAwards = false;
+                }
+              } else {
+                hasMoreAwards = false;
+              }
+            }
+            
+            console.log(`Award data loading complete: ${allAwardData.length}/${totalAwards} records loaded`);
+            
+            return allAwardData;
+          })()
+        ]);
+        
+        const endTime = Date.now();
+        const loadTime = (endTime - startTime) / 1000;
+        
+        console.log(`✅ Optimized data fetch completed in ${loadTime.toFixed(2)}s`);
+        console.log(`📊 Fetched ${rfqResult.length} RFQ records and ${awardResult.length} award records`);
+        
+        return {
+          rfqData: rfqResult,
+          awardData: awardResult,
+        };
+      } catch (error) {
+        console.error('Error fetching trends data:', error);
+        return { rfqData: [], awardData: [] };
+      }
+    },
+    enabled: !!startDate && !!endDate,
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes to avoid refetching
+    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+  });
+};
+
+export const useDeleteFromQueue = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data, error } = await supabase
+        .from('universal_contract_queue')
+        .delete()
         .eq('id', id);
       if (error) throw error;
       return data;

@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { useUpdateDestinations } from '@/hooks/use-database';
+import { useUpdateDestinations, useUpdateMilitaryStandards, StageTimelineEntry } from '@/hooks/use-database';
 import { 
   FileText, 
   Upload, 
@@ -37,7 +37,9 @@ interface ContractDetailProps {
 export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailProps) => {
   const { toast } = useToast();
   const updateDestinations = useUpdateDestinations();
+  const updateMilitaryStandards = useUpdateMilitaryStandards();
   const [destinations, setDestinations] = useState<Array<{ location: string; quantity: string }>>([]);
+  const [militaryStandards, setMilitaryStandards] = useState<Array<{ code: string; description: string }>>([]);
   
   // Calculate total destination quantity
   const totalDestinationQuantity = destinations.reduce((total, dest) => {
@@ -53,6 +55,37 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
       setDestinations([]);
     }
   }, [contract]);
+  
+  // Load existing military standards when contract changes
+  useEffect(() => {
+    if (contract?.mil_std && Array.isArray(contract.mil_std)) {
+      setMilitaryStandards(contract.mil_std);
+    } else {
+      setMilitaryStandards([]);
+    }
+  }, [contract]);
+  
+  // Auto-save military standards when they change
+  const autoSaveMilitaryStandards = async (newStandards: Array<{ code: string; description: string }>) => {
+    try {
+      // Set to null if no standards, otherwise use the array
+      const valueToSave = newStandards.length === 0 ? null : newStandards;
+      
+      await updateMilitaryStandards.mutateAsync({ 
+        id: contract.id, 
+        militaryStandards: valueToSave 
+      });
+      // Don't show toast for auto-save to avoid spam
+    } catch (error) {
+      console.error('Auto-save failed:', error);
+      // Show error toast for auto-save failures
+      toast({
+        title: 'Auto-save Failed',
+        description: 'Failed to auto-save military standards. Please try saving manually.',
+        variant: 'destructive',
+      });
+    }
+  };
   
   const handleSaveDestinations = async () => {
     try {
@@ -82,11 +115,15 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
     });
   };
 
-  const timelineEvents = [
-    { date: contract.created_at, event: 'Contract added to queue', type: 'info' },
-    { date: new Date().toISOString(), event: 'Analysis phase started', type: 'success' },
-    // Add more synthetic timeline events as needed
-  ];
+  // Parse the stage timeline from the contract data
+  const stageTimeline: StageTimelineEntry[] = contract?.stage_timeline 
+    ? (Array.isArray(contract.stage_timeline) ? contract.stage_timeline : [])
+    : [];
+
+  // Sort timeline by timestamp (most recent first)
+  const sortedTimeline = [...stageTimeline].sort((a, b) => 
+    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -129,7 +166,7 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                   <div>
                     <Label htmlFor="status">Current Status</Label>
                     <Badge variant="outline" className="w-full justify-center py-2">
-                      {contract.tech_doc_link || 'Analysis'}
+                      {contract.current_stage || 'Analysis'}
                     </Badge>
                   </div>
                 </div>
@@ -180,8 +217,111 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                     Contract details are read-only. Use the status controls above to manage the contract lifecycle.
                   </p>
                 </div>
-              </CardContent>
-            </Card>
+                
+                {/* Military Standards Section */}
+                <div className="pt-4 border-t">
+                  <div className="flex items-center justify-between mb-3">
+                    <Label className="text-base font-semibold">Military Standards</Label>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        const newStandard = { code: '', description: '' };
+                        const newStandards = [...militaryStandards, newStandard];
+                        setMilitaryStandards(newStandards);
+                        // Auto-save the new list
+                        await autoSaveMilitaryStandards(newStandards);
+                      }}
+                    >
+                      Add Standard
+                    </Button>
+                  </div>
+                  
+                  {militaryStandards.length === 0 ? (
+                    <div className="text-center py-6 border-2 border-dashed border-muted-foreground/25 rounded-lg">
+                      <p className="text-sm text-muted-foreground mb-2">No military standards added yet</p>
+                      <p className="text-xs text-muted-foreground">Click "Add Standard" to add the first one</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {militaryStandards.map((standard, index) => (
+                        <div key={index} className="flex gap-2 items-start">
+                          <div className="flex-1 space-y-2">
+                            <Input
+                              placeholder="e.g., MIL-STD-130"
+                              value={standard.code}
+                              onChange={async (e) => {
+                                const newStandards = [...militaryStandards];
+                                newStandards[index].code = e.target.value;
+                                setMilitaryStandards(newStandards);
+                                // Auto-save after a brief delay to avoid too many API calls
+                                setTimeout(() => autoSaveMilitaryStandards(newStandards), 500);
+                              }}
+                              className="font-mono text-sm"
+                            />
+                            <Textarea
+                              placeholder="Description of the standard (e.g., Marking standards for military items)"
+                              value={standard.description}
+                              onChange={async (e) => {
+                                const newStandards = [...militaryStandards];
+                                newStandards[index].description = e.target.value;
+                                setMilitaryStandards(newStandards);
+                                // Auto-save after a brief delay to avoid too many API calls
+                                setTimeout(() => autoSaveMilitaryStandards(newStandards), 500);
+                              }}
+                              rows={2}
+                              className="text-sm"
+                            />
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={async () => {
+                              const newStandards = militaryStandards.filter((_, i) => i !== index);
+                              setMilitaryStandards(newStandards);
+                              // Auto-save the updated list
+                              await autoSaveMilitaryStandards(newStandards);
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
+                                         </div>
+                   )}
+                   
+                   {militaryStandards.length > 0 && (
+                     <div className="pt-3 border-t">
+                       <Button
+                         size="sm"
+                         onClick={async () => {
+                           try {
+                             await updateMilitaryStandards.mutateAsync({ 
+                               id: contract.id, 
+                               militaryStandards 
+                             });
+                             toast({
+                               title: 'Military Standards Saved',
+                               description: 'Military standards have been updated successfully.',
+                             });
+                           } catch (error) {
+                             toast({
+                               title: 'Error',
+                               description: 'Failed to save military standards. Please try again.',
+                               variant: 'destructive',
+                             });
+                           }
+                         }}
+                         disabled={updateMilitaryStandards.isPending}
+                       >
+                         {updateMilitaryStandards.isPending ? 'Saving...' : 'Save Standards'}
+                       </Button>
+                     </div>
+                   )}
+                 </div>
+               </CardContent>
+             </Card>
           </TabsContent>
 
           <TabsContent value="documents" className="space-y-4">
@@ -414,33 +554,59 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {timelineEvents.map((event, index) => (
-                    <div key={index} className="flex items-start gap-3 pb-4 border-b last:border-b-0">
-                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-guild-accent-1/20 flex items-center justify-center">
-                        {event.type === 'success' ? (
+                  {sortedTimeline.length > 0 ? (
+                    sortedTimeline.map((entry, index) => (
+                      <div key={index} className="flex items-start gap-3 pb-4 border-b last:border-b-0">
+                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-guild-accent-1/20 flex items-center justify-center">
                           <CheckCircle2 className="w-4 h-4 text-guild-success" />
-                        ) : (
-                          <Clock className="w-4 h-4 text-guild-accent-1" />
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-medium">{event.event}</p>
-                        <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
-                          <Calendar className="w-3 h-3" />
-                          {new Date(event.date).toLocaleDateString()}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="font-medium">{entry.stage}</p>
+                            <Badge variant="outline" className="text-xs">
+                              {entry.stage}
+                            </Badge>
+                          </div>
+                          {entry.notes && (
+                            <p className="text-sm text-muted-foreground mb-2">
+                              {entry.notes}
+                            </p>
+                          )}
+                          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                            <div className="flex items-center gap-1">
+                              <Calendar className="w-3 h-3" />
+                              {new Date(entry.timestamp).toLocaleDateString()} at {new Date(entry.timestamp).toLocaleTimeString()}
+                            </div>
+                            {entry.moved_by && (
+                              <div className="flex items-center gap-1">
+                                <User className="w-3 h-3" />
+                                {entry.moved_by}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-8">
+                      <Clock className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                      <h3 className="text-lg font-semibold mb-2">No Timeline Data</h3>
+                      <p className="text-muted-foreground">
+                        Stage transitions will appear here as the contract progresses.
+                      </p>
                     </div>
-                  ))}
+                  )}
                 </div>
 
-                <div className="mt-6 p-4 bg-muted rounded-lg">
-                  <h4 className="font-medium mb-2">Timeline Notes</h4>
-                  <p className="text-sm text-muted-foreground">
-                    This timeline shows synthetic events for demonstration. 
-                    Real timeline tracking will be implemented with actual contract workflows.
-                  </p>
-                </div>
+                {sortedTimeline.length > 0 && (
+                  <div className="mt-6 p-4 bg-muted rounded-lg">
+                    <h4 className="font-medium mb-2">Timeline Summary</h4>
+                    <p className="text-sm text-muted-foreground">
+                      Showing {sortedTimeline.length} stage transition{sortedTimeline.length !== 1 ? 's' : ''}.
+                      Most recent changes appear at the top.
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
