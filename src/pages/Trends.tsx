@@ -59,8 +59,50 @@ export const Trends = () => {
   
   // Show data count for debugging
   const dataInfo = useMemo(() => {
-    if (trendsLoading) return 'Loading data...';
+    if (trendsLoading) return 'Loading data in optimized batches...';
     if (trendsError) return 'Error loading data';
+    
+    // Comprehensive debug logging
+    console.log('=== TRENDS DATA DEBUG ===');
+    console.log('RFQ Data:', {
+      count: rfqData.length,
+      sample: rfqData[0],
+      first5Nsns: rfqData.slice(0, 5).map(r => r.national_stock_number),
+      first5Dates: rfqData.slice(0, 5).map(r => r.quote_issue_date),
+      first5Quantities: rfqData.slice(0, 5).map(r => r.quantity)
+    });
+    
+    console.log('Award Data:', {
+      count: awardData.length,
+      sample: awardData[0],
+      first5Nsns: awardData.slice(0, 5).map(a => a.national_stock_number),
+      first5Dates: awardData.slice(0, 5).map(a => a.awd_date),
+      first5Cages: awardData.slice(0, 5).map(a => a.cage),
+      first5Totals: awardData.slice(0, 5).map(a => a.total),
+      first5Quantities: awardData.slice(0, 5).map(a => a.quantity)
+    });
+    
+    // Test the matching logic
+    if (rfqData.length > 0 && awardData.length > 0) {
+      const testRfq = rfqData[0];
+      const testAward = awardData[0];
+      
+      console.log('=== MATCHING TEST ===');
+      console.log('Test RFQ NSN:', testRfq.national_stock_number);
+      console.log('Test Award NSN:', testAward.national_stock_number);
+      console.log('NSN Match:', testRfq.national_stock_number === testAward.national_stock_number);
+      
+      // Check for partial matches
+      const matchingAwards = awardData.filter(award => 
+        award.national_stock_number === testRfq.national_stock_number
+      );
+      console.log('Matching awards for test RFQ:', matchingAwards.length);
+      
+      if (matchingAwards.length > 0) {
+        console.log('Sample matching award:', matchingAwards[0]);
+      }
+    }
+    
     return `${rfqData.length.toLocaleString()} RFQ records, ${awardData.length.toLocaleString()} award records`;
   }, [trendsLoading, trendsError, rfqData.length, awardData.length]);
 
@@ -69,21 +111,60 @@ export const Trends = () => {
     if (!rfqData || !awardData || !Array.isArray(rfqData) || !Array.isArray(awardData)) return null;
 
     const totalRfqs = rfqData.length;
-    const totalAwards = awardData.length;
-    const awardRate = totalRfqs > 0 ? (totalAwards / totalRfqs * 100).toFixed(1) : 0;
     
-    const totalValue = awardData.reduce((sum, award) => sum + (award.total || 0), 0);
-    const avgValue = totalAwards > 0 ? totalValue / totalAwards : 0;
+    console.log('=== METRICS CALCULATION DEBUG ===');
+    console.log('Total RFQs:', totalRfqs);
+    console.log('Total Awards:', awardData.length);
+    
+    // Calculate contracts with award history
+    const contractsWithAwardHistory = rfqData.filter(rfq => 
+      awardData.some(award => award.national_stock_number === rfq.national_stock_number)
+    ).length;
+    
+    console.log('Contracts with Award History:', contractsWithAwardHistory);
+    
+    // Calculate estimated total value based on award history
+    let estimatedTotalValue = 0;
+    let contractsWithValues = 0;
+    
+    rfqData.forEach((rfq, index) => {
+      // Find matching awards for this NSN
+      const matchingAwards = awardData.filter(award => 
+        award.national_stock_number === rfq.national_stock_number
+      );
+      
+      if (matchingAwards.length > 0) {
+        contractsWithValues++;
+        console.log(`RFQ ${index + 1}: Found ${matchingAwards.length} matching awards for NSN ${rfq.national_stock_number}`);
+        
+        // Calculate average unit cost from past awards
+        const totalAwardValue = matchingAwards.reduce((sum, award) => sum + (award.total || 0), 0);
+        const totalAwardQuantity = matchingAwards.reduce((sum, award) => sum + (award.quantity || 0), 0);
+        
+        console.log(`  Award values: ${matchingAwards.map(a => a.total).join(', ')}`);
+        console.log(`  Award quantities: ${matchingAwards.map(a => a.quantity).join(', ')}`);
+        console.log(`  Total award value: ${totalAwardValue}, Total award quantity: ${totalAwardQuantity}`);
+        
+        if (totalAwardQuantity > 0) {
+          const avgUnitCost = totalAwardValue / totalAwardQuantity;
+          const estimatedValue = avgUnitCost * (rfq.quantity || 0);
+          estimatedTotalValue += estimatedValue;
+          
+          console.log(`  Avg unit cost: ${avgUnitCost}, RFQ quantity: ${rfq.quantity}, Estimated value: ${estimatedValue}`);
+        }
+      }
+    });
+    
+    console.log('Total contracts with values calculated:', contractsWithValues);
+    console.log('Estimated total value:', estimatedTotalValue);
     
     const totalQuantity = rfqData.reduce((sum, rfq) => sum + (rfq.quantity || 0), 0);
     const avgQuantity = totalRfqs > 0 ? totalQuantity / totalRfqs : 0;
 
     return {
       totalRfqs,
-      totalAwards,
-      awardRate,
-      totalValue: totalValue.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }),
-      avgValue: avgValue.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }),
+      contractsWithAwardHistory,
+      estimatedTotalValue: estimatedTotalValue.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }),
       totalQuantity: totalQuantity.toLocaleString(),
       avgQuantity: Math.round(avgQuantity).toLocaleString(),
     };
@@ -156,6 +237,42 @@ export const Trends = () => {
         fill: getCategoryColor(category.name),
       };
     }).filter(item => item.value > 0);
+  }, [rfqData]);
+
+  // Item name trends data (top items by frequency)
+  const itemTrendsData = useMemo(() => {
+    if (!rfqData || !Array.isArray(rfqData) || rfqData.length === 0) {
+      console.log('No RFQ data available for item trends');
+      return [];
+    }
+
+    console.log('Processing item trends data...');
+    console.log('Sample RFQ items:', rfqData.slice(0, 5).map(r => r.item));
+
+    // Count occurrences of each item name
+    const itemCounts = rfqData.reduce((acc, rfq) => {
+      const itemName = rfq.item?.trim() || 'Unknown Item';
+      if (itemName && itemName !== '') {
+        acc[itemName] = (acc[itemName] || 0) + 1;
+      }
+      return acc;
+    }, {} as Record<string, number>);
+
+    console.log('Item counts:', Object.keys(itemCounts).length, 'unique items');
+    console.log('Top 5 items:', Object.entries(itemCounts).sort(([,a], [,b]) => b - a).slice(0, 5));
+
+    // Get top 10 items by frequency
+    const topItems = Object.entries(itemCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 10)
+      .map(([itemName, count], index) => ({
+        name: itemName.length > 30 ? itemName.substring(0, 30) + '...' : itemName, // Truncate long names
+        value: count,
+        fill: `hsl(${(index * 137.5) % 360}, 70%, 50%)`, // Better color distribution
+      }));
+
+    console.log('Final item trends data:', topItems.length, 'items');
+    return topItems;
   }, [rfqData]);
 
   // Helper function for category colors
@@ -286,26 +403,26 @@ export const Trends = () => {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Awards</CardTitle>
+            <CardTitle className="text-sm font-medium">Contracts with Award History</CardTitle>
             <Award className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{metrics?.totalAwards.toLocaleString() || 0}</div>
+            <div className="text-2xl font-bold">{metrics?.contractsWithAwardHistory?.toLocaleString() || 0}</div>
             <p className="text-xs text-muted-foreground">
-              {metrics?.awardRate || 0}% conversion rate
+              RFQs with previous award data
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Value</CardTitle>
+            <CardTitle className="text-sm font-medium">Estimated Total Value</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{metrics?.totalValue || '$0'}</div>
+            <div className="text-2xl font-bold">{metrics?.estimatedTotalValue || '$0'}</div>
             <p className="text-xs text-muted-foreground">
-              Avg: {metrics?.avgValue || '$0'}
+              Based on award history pricing
             </p>
           </CardContent>
         </Card>
@@ -325,8 +442,8 @@ export const Trends = () => {
       </div>
 
       {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* RFQ Volume Over Time */}
+      <div className="space-y-6">
+        {/* Main Time Series Chart - Full Width */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -335,7 +452,7 @@ export const Trends = () => {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-80">
+            <div className="h-96">
               {chartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData}>
@@ -349,11 +466,17 @@ export const Trends = () => {
                     />
                     <YAxis />
                     <Tooltip 
-                      labelFormatter={(value) => new Date(value).toLocaleDateString()}
-                      formatter={(value, name) => [
-                        name === 'rfqs' ? value : name === 'awards' ? value : `$${value}K`,
-                        name === 'rfqs' ? 'RFQs' : name === 'awards' ? 'Awards' : 'Value ($K)'
-                      ]}
+                      labelFormatter={(value) => `Date: ${new Date(value).toLocaleDateString()}`}
+                      formatter={(value, name) => {
+                        if (name === 'rfqs') {
+                          return [value, 'RFQs Published (Daily Count)'];
+                        } else if (name === 'awards') {
+                          return [value, 'Contracts Awarded (Daily Count)'];
+                        } else if (name === 'value') {
+                          return [`$${value}K`, 'Award Value (Daily Total in $K)'];
+                        }
+                        return [value, name];
+                      }}
                     />
                     <Line 
                       type="monotone" 
@@ -379,48 +502,89 @@ export const Trends = () => {
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
-                <SimpleLineChart data={chartData} height={320} />
+                <SimpleLineChart data={chartData} height={384} />
               )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Category Distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <PieChart className="h-5 w-5" />
-              RFQ Distribution by Category
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80">
-              {categoryData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <RechartsPieChart>
-                    <Pie
-                      data={categoryData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                      outerRadius={80}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {categoryData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value) => [value, 'RFQs']} />
-                  </RechartsPieChart>
-                </ResponsiveContainer>
-              ) : (
-                <SimplePieChart data={categoryData} height={320} />
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        {/* Distribution Charts - Side by Side */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* Category Distribution */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <PieChart className="h-5 w-5" />
+                RFQ Distribution by Category
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-80">
+                {categoryData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsPieChart>
+                      <Pie
+                        data={categoryData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {categoryData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value) => [value, 'RFQs']} />
+                    </RechartsPieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <SimplePieChart data={categoryData} height={320} />
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Top Items by Frequency */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5" />
+                Top Items by Frequency
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-80">
+                {itemTrendsData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={itemTrendsData} layout="horizontal">
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" />
+                      <YAxis 
+                        type="category" 
+                        dataKey="name" 
+                        width={150}
+                        tick={{ fontSize: 11 }}
+                        interval={0}
+                      />
+                      <Tooltip 
+                        formatter={(value, name) => [value, 'RFQ Count']}
+                        labelFormatter={(label) => `Item: ${label}`}
+                      />
+                      <Bar dataKey="value" fill="#8b5cf6" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-muted-foreground">
+                    {rfqData.length > 0 ? 'Processing item data...' : 'No item data available'}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {/* Additional Analytics */}
@@ -435,25 +599,40 @@ export const Trends = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {Array.isArray(awardData) && Object.entries(awardData
-                .reduce((acc, award) => {
-                  const cage = award.cage || 'Unknown';
-                  acc[cage] = (acc[cage] || 0) + 1;
+              {(() => {
+                if (!Array.isArray(awardData) || awardData.length === 0) {
+                  return <p className="text-sm text-muted-foreground">No award data available</p>;
+                }
+                
+                // Process CAGE data with better error handling
+                const cageStats = awardData.reduce((acc, award) => {
+                  const cage = award.cage;
+                  if (cage && cage.trim() !== '') {
+                    acc[cage] = (acc[cage] || 0) + 1;
+                  }
                   return acc;
-                }, {} as Record<string, number>))
-                .sort(([,a], [,b]) => b - a)
-                .slice(0, 5)
-                .map(([cage, count], index) => (
+                }, {} as Record<string, number>);
+                
+                const topSuppliers = Object.entries(cageStats)
+                  .sort(([,a], [,b]) => b - a)
+                  .slice(0, 5);
+                
+                if (topSuppliers.length === 0) {
+                  return <p className="text-sm text-muted-foreground">No valid CAGE codes found</p>;
+                }
+                
+                return topSuppliers.map(([cage, count], index) => (
                   <div key={cage} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary" className="w-6 h-6 p-0 flex items-center justify-center text-xs">
                         {index + 1}
                       </Badge>
-                      <span className="text-sm font-medium">{cage}</span>
+                      <span className="text-sm font-medium font-mono">{cage}</span>
                     </div>
                     <span className="text-sm text-muted-foreground">{count} awards</span>
                   </div>
-                ))}
+                ));
+              })()}
             </div>
           </CardContent>
         </Card>

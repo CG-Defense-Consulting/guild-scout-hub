@@ -488,77 +488,157 @@ export const useUpdateMilitaryStandards = () => {
   });
 };
 
-// Hook for fetching trends data without row limits
+// Hook for fetching trends data without row limits - optimized for speed
 export const useTrendsData = (startDate: string, endDate: string) => {
   return useQuery({
     queryKey: ['trends_data', startDate, endDate],
     queryFn: async () => {
       try {
-        // Fetch RFQ data in batches of 1000 until we get all data
-        let allRfqData: any[] = [];
-        let hasMoreRfq = true;
-        let rfqOffset = 0;
-        const rfqBatchSize = 1000;
+        console.log(`Starting optimized data fetch for period ${startDate} to ${endDate}`);
+        const startTime = Date.now();
         
-        while (hasMoreRfq) {
-          const { data: rfqBatch, error: rfqError } = await supabase
+        // Supabase has a hard limit of 1000 rows per query, so we use that
+        const BATCH_SIZE = 1000;
+        
+        // First, get the total count of records to show progress
+        console.log('Getting total record counts...');
+        const [rfqCountResult, awardCountResult] = await Promise.all([
+          supabase
             .from('rfq_index_extract')
-            .select('*')
+            .select('*', { count: 'exact', head: true })
             .gte('quote_issue_date', startDate)
-            .lte('quote_issue_date', endDate)
-            .order('quote_issue_date', { ascending: false })
-            .range(rfqOffset, rfqOffset + rfqBatchSize - 1);
-          
-          if (rfqError) throw rfqError;
-          
-          if (rfqBatch && rfqBatch.length > 0) {
-            allRfqData = [...allRfqData, ...rfqBatch];
-            rfqOffset += rfqBatchSize;
-            
-            // If we got less than the batch size, we've reached the end
-            if (rfqBatch.length < rfqBatchSize) {
-              hasMoreRfq = false;
-            }
-          } else {
-            hasMoreRfq = false;
-          }
-        }
-        
-        // Fetch award history data in batches of 1000 until we get all data
-        let allAwardData: any[] = [];
-        let hasMoreAwards = true;
-        let awardOffset = 0;
-        const awardBatchSize = 1000;
-        
-        while (hasMoreAwards) {
-          const { data: awardBatch, error: awardError } = await supabase
+            .lte('quote_issue_date', endDate),
+          supabase
             .from('award_history')
-            .select('*')
+            .select('*', { count: 'exact', head: true })
             .gte('awd_date', startDate)
             .lte('awd_date', endDate)
-            .order('awd_date', { ascending: false })
-            .range(awardOffset, awardOffset + awardBatchSize - 1);
-          
-          if (awardError) throw awardError;
-          
-          if (awardBatch && awardBatch.length > 0) {
-            allAwardData = [...allAwardData, ...awardBatch];
-            awardOffset += awardBatchSize;
-            
-            // If we got less than the batch size, we've reached the end
-            if (awardBatch.length < awardBatchSize) {
-              hasMoreAwards = false;
-            }
-          } else {
-            hasMoreAwards = false;
-          }
-        }
+        ]);
         
-        console.log(`Fetched ${allRfqData.length} RFQ records and ${allAwardData.length} award records for period ${startDate} to ${endDate}`);
+        const totalRfqs = rfqCountResult.count || 0;
+        const totalAwards = awardCountResult.count || 0;
+        
+        console.log(`Total records to fetch: ${totalRfqs} RFQs, ${totalAwards} Awards`);
+        
+        // Fetch both datasets in parallel
+        const [rfqResult, awardResult] = await Promise.all([
+          // RFQ Data fetching
+          (async () => {
+            let allRfqData: any[] = [];
+            let hasMoreRfq = true;
+            let rfqOffset = 0;
+            
+            console.log(`Fetching ${totalRfqs} RFQ records in batches of ${BATCH_SIZE}...`);
+            
+            while (hasMoreRfq) {
+              const { data: rfqBatch, error: rfqError } = await supabase
+                .from('rfq_index_extract')
+                .select('id, national_stock_number, item, quantity, quote_issue_date, solicitation_number, desc') // Only select needed fields
+                .gte('quote_issue_date', startDate)
+                .lte('quote_issue_date', endDate)
+                .order('quote_issue_date', { ascending: false })
+                .range(rfqOffset, rfqOffset + BATCH_SIZE - 1);
+              
+              if (rfqError) throw rfqError;
+              
+              if (rfqBatch && rfqBatch.length > 0) {
+                allRfqData = [...allRfqData, ...rfqBatch];
+                rfqOffset += BATCH_SIZE;
+                
+                const progress = ((allRfqData.length / totalRfqs) * 100).toFixed(1);
+                console.log(`RFQ batch loaded: ${rfqBatch.length} records (total: ${allRfqData.length}/${totalRfqs} - ${progress}%)`);
+                
+                // If we got less than the batch size, we've reached the end
+                if (rfqBatch.length < BATCH_SIZE) {
+                  hasMoreRfq = false;
+                }
+                
+                // Safety check: if we've loaded more than the total count, something's wrong
+                if (allRfqData.length >= totalRfqs) {
+                  hasMoreRfq = false;
+                }
+              } else {
+                hasMoreRfq = false;
+              }
+            }
+            
+            console.log(`RFQ data loading complete: ${allRfqData.length}/${totalRfqs} records loaded`);
+            
+            return allRfqData;
+          })(),
+          
+          // Award History Data fetching
+          (async () => {
+            let allAwardData: any[] = [];
+            let hasMoreAwards = true;
+            let awardOffset = 0;
+            
+            console.log('Fetching award data in parallel...');
+            
+            // First, let's check what award history data exists without date restrictions
+            const { data: sampleAwards, error: sampleError } = await supabase
+              .from('award_history')
+              .select('*')
+              .limit(5);
+            
+            if (sampleError) {
+              console.error('Error fetching sample awards:', sampleError);
+            } else {
+              console.log('Sample award records:', sampleAwards);
+              if (sampleAwards && sampleAwards.length > 0) {
+                console.log('Sample award dates:', sampleAwards.map(a => a.awd_date));
+                console.log('Sample award NSNs:', sampleAwards.map(a => a.national_stock_number));
+                console.log('Sample award CAGE codes:', sampleAwards.map(a => a.cage));
+              }
+            }
+            
+            while (hasMoreAwards) {
+              const { data: awardBatch, error: awardError } = await supabase
+                .from('award_history')
+                .select('national_stock_number, cage, total, quantity, awd_date') // Only select needed fields
+                .gte('awd_date', startDate)
+                .lte('awd_date', endDate)
+                .order('awd_date', { ascending: false })
+                .range(awardOffset, awardOffset + BATCH_SIZE - 1);
+              
+              if (awardError) throw awardError;
+              
+              if (awardBatch && awardBatch.length > 0) {
+                allAwardData = [...allAwardData, ...awardBatch];
+                awardOffset += BATCH_SIZE;
+                
+                const progress = ((allAwardData.length / totalAwards) * 100).toFixed(1);
+                console.log(`Award batch loaded: ${awardBatch.length} records (total: ${allAwardData.length}/${totalAwards} - ${progress}%)`);
+                
+                // If we got less than the batch size, we've reached the end
+                if (awardBatch.length < BATCH_SIZE) {
+                  hasMoreAwards = false;
+                }
+                
+                // Safety check: if we've loaded more than the total count, something's wrong
+                if (allAwardData.length >= totalAwards) {
+                  hasMoreAwards = false;
+                }
+              } else {
+                hasMoreAwards = false;
+              }
+            }
+            
+            console.log(`Award data loading complete: ${allAwardData.length}/${totalAwards} records loaded`);
+            
+            return allAwardData;
+          })()
+        ]);
+        
+        const endTime = Date.now();
+        const loadTime = (endTime - startTime) / 1000;
+        
+        console.log(`✅ Optimized data fetch completed in ${loadTime.toFixed(2)}s`);
+        console.log(`📊 Fetched ${rfqResult.length} RFQ records and ${awardResult.length} award records`);
         
         return {
-          rfqData: allRfqData,
-          awardData: allAwardData,
+          rfqData: rfqResult,
+          awardData: awardResult,
         };
       } catch (error) {
         console.error('Error fetching trends data:', error);
@@ -566,6 +646,8 @@ export const useTrendsData = (startDate: string, endDate: string) => {
       }
     },
     enabled: !!startDate && !!endDate,
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes to avoid refetching
+    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
   });
 };
 
