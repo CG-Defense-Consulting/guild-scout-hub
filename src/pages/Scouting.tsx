@@ -10,16 +10,19 @@ import { PricingIntelPanel } from '@/components/PricingIntelPanel';
 import { useRfqData, useRfqDataWithSearch, useAwardHistory, useAddToQueue } from '@/hooks/use-database';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Search, Plus, TrendingUp, Calendar, Package, Tag } from 'lucide-react';
+import { Search, Plus, TrendingUp, Calendar, Package, Tag, Filter, X } from 'lucide-react';
 
 export const Scouting = () => {
   const { toast } = useToast();
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   const [filters, setFilters] = useState({});
   const [selectedNsn, setSelectedNsn] = useState<string | null>(null);
   const [showPricingPanel, setShowPricingPanel] = useState(false);
+  const [showFilters, setShowFilters] = useState(!isMobile); // Hide filters by default on mobile
   
   // Category filter state
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -121,6 +124,11 @@ export const Scouting = () => {
     }
   }, []);
 
+  // Handle mobile state changes
+  React.useEffect(() => {
+    setShowFilters(!isMobile);
+  }, [isMobile]);
+
 
 
   const handleCategoryToggle = (categoryId: string) => {
@@ -204,7 +212,7 @@ export const Scouting = () => {
         const combinedText = item && desc ? `${item} | ${desc}` : item || desc;
         
         return (
-          <div className="max-w-xs truncate" title={combinedText}>
+          <div className={isMobile ? "line-clamp-2" : "max-w-xs truncate"} title={combinedText}>
             {combinedText}
           </div>
         );
@@ -223,10 +231,14 @@ export const Scouting = () => {
     {
       accessorKey: 'quote_issue_date',
       header: 'Issue Date',
-      cell: ({ getValue }: any) => (
+      cell: ({ row }: any) => (
         <div className="flex items-center gap-1">
           <Calendar className="w-3 h-3 text-muted-foreground" />
-          {getValue()}
+          {isMobile ? (
+            <span className="text-sm">{row.original.quote_issue_date}</span>
+          ) : (
+            row.original.quote_issue_date
+          )}
         </div>
       ),
     },
@@ -234,25 +246,26 @@ export const Scouting = () => {
       id: 'actions',
       header: 'Actions',
       cell: ({ row }: any) => (
-        <div className="flex gap-2">
+        <div className={`flex ${isMobile ? 'flex-col space-y-2' : 'gap-2'}`}>
           <Button
             size="sm"
             variant="outline"
             onClick={() => handleViewPricing(row.original.national_stock_number)}
             disabled={!hasAwardHistory(row.original.national_stock_number)}
-            className={!hasAwardHistory(row.original.national_stock_number) ? 'opacity-50 cursor-not-allowed' : ''}
+            className={`${!hasAwardHistory(row.original.national_stock_number) ? 'opacity-50 cursor-not-allowed' : ''} ${isMobile ? 'w-full' : ''}`}
             title={!hasAwardHistory(row.original.national_stock_number) ? 'No pricing history available' : 'View pricing history'}
           >
             <TrendingUp className="w-3 h-3 mr-1" />
-            Pricing
+            {isMobile ? 'View Pricing' : 'Pricing'}
           </Button>
           <Button
             size="sm"
             onClick={() => handleAddToQueue(row.original)}
             disabled={addToQueue.isPending}
+            className={isMobile ? 'w-full' : ''}
           >
             <Plus className="w-3 h-3 mr-1" />
-            Queue
+            {isMobile ? 'Add to Queue' : 'Queue'}
           </Button>
         </div>
       ),
@@ -260,174 +273,233 @@ export const Scouting = () => {
   ];
 
   return (
-    <div className="p-6 space-y-6">
-                <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-guild-brand-fg">Contract Scouting</h1>
-              <p className="text-muted-foreground">Discover and analyze defense contracting opportunities</p>
-            </div>
-            <div className="flex items-center gap-3">
-              {selectedCategories.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Filtered by:</span>
-                  {selectedCategories.map((catId) => {
-                    const category = categories.find(cat => cat.id === catId);
-                    return (
-                      <Badge
-                        key={catId}
-                        variant="secondary"
-                        className="bg-guild-accent-1/20 text-guild-accent-1 border-guild-accent-1/30"
-                      >
-                        {category?.name}
-                      </Badge>
-                    );
-                  })}
-                </div>
-              )}
-              <Badge variant="outline" className="bg-guild-accent-1/10 text-guild-accent-1">
-                {filteredRfqData.length} opportunities
-              </Badge>
-            </div>
-          </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Search className="w-5 h-5" />
-            Filters
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Category Filters */}
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      {/* Mobile Header */}
+      {isMobile && (
+        <div className="flex items-center justify-between">
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <Label className="text-sm font-medium flex items-center gap-2">
-                <Tag className="w-4 h-4" />
-                Category Filters
-              </Label>
-              {selectedCategories.length > 0 && (
+            <h1 className="text-xl font-semibold text-guild-brand-fg">Contract Scouting</h1>
+            <p className="text-sm text-muted-foreground">Discover and analyze defense contracting opportunities</p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowFilters(!showFilters)}
+            className="flex items-center gap-2"
+          >
+            <Filter className="w-4 h-4" />
+            {showFilters ? 'Hide' : 'Show'} Filters
+          </Button>
+        </div>
+      )}
+
+      {/* Desktop Header */}
+      {!isMobile && (
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-guild-brand-fg">Contract Scouting</h1>
+            <p className="text-muted-foreground">Discover and analyze defense contracting opportunities</p>
+          </div>
+          <div className="flex items-center gap-3">
+            {selectedCategories.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Filtered by:</span>
+                {selectedCategories.map((catId) => {
+                  const category = categories.find(cat => cat.id === catId);
+                  return (
+                    <Badge
+                      key={catId}
+                      variant="secondary"
+                      className="bg-guild-accent-1/20 text-guild-accent-1 border-guild-accent-1/30"
+                    >
+                      {category?.name}
+                    </Badge>
+                  );
+                })}
+              </div>
+            )}
+            <Badge variant="outline" className="bg-guild-accent-1/10 text-guild-accent-1">
+              {filteredRfqData.length} opportunities
+            </Badge>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Category Badges */}
+      {isMobile && selectedCategories.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">Filtered by:</span>
+          {selectedCategories.map((catId) => {
+            const category = categories.find(cat => cat.id === catId);
+            return (
+              <Badge
+                key={catId}
+                variant="secondary"
+                className="bg-guild-accent-1/20 text-guild-accent-1 border-guild-accent-1/30"
+              >
+                {category?.name}
+              </Badge>
+            );
+          })}
+          <Badge variant="outline" className="bg-guild-accent-1/10 text-guild-accent-1">
+            {filteredRfqData.length} opportunities
+          </Badge>
+        </div>
+      )}
+
+      {/* Filters Card - Conditionally shown on mobile */}
+      {(showFilters || !isMobile) && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Search className="w-5 h-5" />
+                Filters
+              </CardTitle>
+              {isMobile && (
                 <Button
-                  type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={clearCategoryFilters}
-                  className="text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowFilters(false)}
+                  className="p-1 h-8 w-8"
                 >
-                  Clear All
+                  <X className="w-4 h-4" />
                 </Button>
               )}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {categories.map((category) => (
-                <div
-                  key={category.id}
-                  className={`flex items-center space-x-3 p-3 rounded-lg border-2 transition-all cursor-pointer hover:shadow-sm ${
-                    selectedCategories.includes(category.id)
-                      ? 'border-guild-accent-1 bg-guild-accent-1/5'
-                      : 'border-border hover:border-guild-accent-1/30'
-                  }`}
-                  onClick={() => handleCategoryToggle(category.id)}
-                >
-                  <Checkbox
-                    id={category.id}
-                    checked={selectedCategories.includes(category.id)}
-                    onChange={() => handleCategoryToggle(category.id)}
-                    className="data-[state=checked]:bg-guild-accent-1 data-[state=checked]:border-guild-accent-1"
-                  />
-                  <div className="flex-1">
-                    <Label
-                      htmlFor={category.id}
-                      className="text-sm font-medium cursor-pointer"
-                    >
-                      {category.name}
-                    </Label>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {category.description}
-                    </p>
-
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Existing Filters */}
-          <form onSubmit={handleFilterChange} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          </CardHeader>
+          <CardContent className="space-y-4 md:space-y-6">
+            {/* Category Filters */}
             <div>
-              <Label htmlFor="national_stock_number">NSN</Label>
-              <Input
-                id="national_stock_number"
-                name="national_stock_number"
-                placeholder="e.g. 5330-01-123"
-              />
-            </div>
-            <div>
-              <Label htmlFor="desc">Description</Label>
-              <Input
-                id="desc"
-                name="desc"
-                placeholder="Search description"
-              />
-            </div>
-            <div>
-              <Label htmlFor="quantity_min">Min Quantity</Label>
-              <Input
-                id="quantity_min"
-                name="quantity_min"
-                type="number"
-                placeholder="0"
-              />
-            </div>
-            <div>
-              <Label htmlFor="quote_issue_date_from">Issue Date From</Label>
-              <Input
-                id="quote_issue_date_from"
-                name="quote_issue_date_from"
-                type="date"
-                placeholder="Start date"
-              />
-              <p className="text-xs text-muted-foreground mt-1">Leave blank for no start limit</p>
-            </div>
-            <div>
-              <Label htmlFor="quote_issue_date_to">Issue Date To</Label>
-              <Input
-                id="quote_issue_date_to"
-                name="quote_issue_date_to"
-                type="date"
-                placeholder="End date"
-              />
-              <p className="text-xs text-muted-foreground mt-1">Leave blank for no end limit</p>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="has_award_history"
-                name="has_award_history"
-                checked={filters.has_award_history || false}
-                onCheckedChange={(checked) => {
-                  setFilters(prev => ({
-                    ...prev,
-                    has_award_history: checked === true
-                  }));
-                }}
-              />
-              <Label htmlFor="has_award_history" className="text-sm">
-                Only show contracts with award history
-                {allAwardHistory && (
-                  <span className="ml-1 text-xs text-muted-foreground">
-                    ({allAwardHistory.length} available)
-                  </span>
+              <div className="flex items-center justify-between mb-3">
+                <Label className="text-sm font-medium flex items-center gap-2">
+                  <Tag className="w-4 h-4" />
+                  Category Filters
+                </Label>
+                {selectedCategories.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearCategoryFilters}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Clear All
+                  </Button>
                 )}
-              </Label>
+              </div>
+              <div className="grid grid-cols-1 gap-3">
+                {categories.map((category) => (
+                  <div
+                    key={category.id}
+                    className={`flex items-center space-x-3 p-3 rounded-lg border-2 transition-all cursor-pointer hover:shadow-sm ${
+                      selectedCategories.includes(category.id)
+                        ? 'border-guild-accent-1 bg-guild-accent-1/5'
+                        : 'border-border hover:border-guild-accent-1/30'
+                    }`}
+                    onClick={() => handleCategoryToggle(category.id)}
+                  >
+                    <Checkbox
+                      id={category.id}
+                      checked={selectedCategories.includes(category.id)}
+                      onChange={() => handleCategoryToggle(category.id)}
+                      className="data-[state=checked]:bg-guild-accent-1 data-[state=checked]:border-guild-accent-1"
+                    />
+                    <div className="flex-1">
+                      <Label
+                        htmlFor={category.id}
+                        className="text-sm font-medium cursor-pointer"
+                      >
+                        {category.name}
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {category.description}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="md:col-span-2 lg:col-span-1 flex items-end">
-              <Button type="submit" className="w-full">
-                <Search className="w-4 h-4 mr-2" />
-                Search
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+
+            {/* Existing Filters */}
+            <form onSubmit={handleFilterChange} className="grid grid-cols-1 gap-4">
+              <div>
+                <Label htmlFor="national_stock_number">NSN</Label>
+                <Input
+                  id="national_stock_number"
+                  name="national_stock_number"
+                  placeholder="e.g. 5330-01-123"
+                />
+              </div>
+              <div>
+                <Label htmlFor="desc">Description</Label>
+                <Input
+                  id="desc"
+                  name="desc"
+                  placeholder="Search description"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="quantity_min">Min Quantity</Label>
+                  <Input
+                    id="quantity_min"
+                    name="quantity_min"
+                    type="number"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="quote_issue_date_from">Issue Date From</Label>
+                  <Input
+                    id="quote_issue_date_from"
+                    name="quote_issue_date_from"
+                    type="date"
+                    placeholder="Start date"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="quote_issue_date_to">Issue Date To</Label>
+                <Input
+                  id="quote_issue_date_to"
+                  name="quote_issue_date_to"
+                  type="date"
+                  placeholder="End date"
+                />
+                <p className="text-xs text-muted-foreground mt-1">Leave blank for no end limit</p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="has_award_history"
+                  name="has_award_history"
+                  checked={filters.has_award_history || false}
+                  onCheckedChange={(checked) => {
+                    setFilters(prev => ({
+                      ...prev,
+                      has_award_history: checked === true
+                    }));
+                  }}
+                />
+                <Label htmlFor="has_award_history" className="text-sm">
+                  Only show contracts with award history
+                  {allAwardHistory && (
+                    <span className="ml-1 text-xs text-muted-foreground">
+                      ({allAwardHistory.length} available)
+                    </span>
+                  )}
+                </Label>
+              </div>
+              <div className="flex items-end">
+                <Button type="submit" className="w-full">
+                  <Search className="w-4 h-4 mr-2" />
+                  Search
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="p-0">
@@ -439,6 +511,7 @@ export const Scouting = () => {
             externalSearchTerm={searchTerm}
             externalSortConfig={sortConfig}
             onSortChange={setSortConfig}
+            isMobile={isMobile}
           />
         </CardContent>
       </Card>
