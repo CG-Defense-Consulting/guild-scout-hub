@@ -22,7 +22,7 @@ export const Tracker = () => {
 
   const getContractsByStatus = (status: string) => {
     return contracts.filter(contract => 
-      (contract.tech_doc_link || 'Analysis') === status
+              contract.current_stage === status
     );
   };
 

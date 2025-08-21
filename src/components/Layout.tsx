@@ -1,6 +1,6 @@
 import { Outlet, useNavigate, NavLink } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { LogOut, Search, BarChart3, Users, Menu, X } from 'lucide-react';
+import { LogOut, Search, BarChart3, Users, Menu, X, TrendingUp } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useState } from 'react';
 
@@ -18,6 +18,7 @@ export const Layout = () => {
   const navigationItems = userRole === 'CGDC' ? [
     { title: 'Contract Scouting', url: '/scouting', icon: Search },
     { title: 'Contract Tracker', url: '/tracker', icon: BarChart3 },
+    { title: 'Trends', url: '/trends', icon: TrendingUp },
     { title: 'Partner Hub', url: '/hub', icon: Users },
   ] : [
     { title: 'Partner Hub', url: '/hub', icon: Users },

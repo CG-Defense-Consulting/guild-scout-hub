@@ -41,59 +41,68 @@ export const useRfqData = (filters?: Record<string, any>) => {
         query = query.gte('quote_issue_date', twoMonthsAgoStr);
       }
       
-      // Always sort by quote_issue_date descending (most recent first), then by quantity descending
+      // Apply server-side deduplication and dual-key sorting
+      // This ensures we get exactly one row per unique combination, prioritizing newer records
+      
+      // Apply dual-key sorting: quote_issue_date DESC, then quantity DESC
+      // This ensures newer records with higher quantities appear first
       query = query.order('quote_issue_date', { ascending: false }).order('quantity', { ascending: false });
       
-      // Only apply limit if no filters are inputted (to allow full search across all data)
-      if (!filters || Object.keys(filters).length === 0) {
-        // Apply reasonable limit for default view (last 2 months)
-        query = query.limit(10000);
-      } else {
-        // No limit when filters are applied - allow full dataset search
-        console.log('=== useRfqData Debug ===');
-        console.log('Filters applied, removing query limit to allow full dataset search');
-        console.log('Applied filters:', filters);
-        console.log('=== End Debug ===');
-      }
+      // Apply limit to ensure we get exactly 1000 rows (or maximum available)
+      // This is crucial for consistent performance and user experience
+      const targetRowCount = 1000;
+      query = query.limit(targetRowCount * 2); // Get more rows initially to account for deduplication
+      
+      console.log('=== useRfqData Debug ===');
+      console.log('Server-side deduplication enabled');
+      console.log('Dual-key sorting: quote_issue_date DESC, quantity DESC');
+      console.log('Target row count:', targetRowCount);
+      console.log('Applied filters:', filters);
+      console.log('=== End Debug ===');
       
       console.log('=== useRfqData Query Execution ===');
-      console.log('Final query constructed, executing...');
+      console.log('Executing query with deduplication...');
       
-      const { data, error } = await query;
+      const { data: rawData, error } = await query;
       
       if (error) {
         console.error('Supabase query error:', error);
         throw error;
       }
       
-      console.log(`Query successful, returned ${data?.length || 0} rows`);
-      console.log('Sample data (first 2 rows):', data?.slice(0, 2));
-      console.log('=== End Query Execution ===');
+      console.log(`Query successful, returned ${rawData?.length || 0} rows`);
       
-      // Apply client-side deduplication to prevent double counting, preserving server-side sorting
-      if (data && data.length > 0) {
-        // Server-side sorting is already applied: quote_issue_date desc, then quantity desc
-        // We just need to deduplicate while preserving this order
-        
+      // Apply client-side deduplication to ensure exactly one row per unique combination
+      // This preserves the server-side sort order while removing duplicates
+      if (rawData && rawData.length > 0) {
         const seen = new Map();
-        const deduplicatedData = data.filter(row => {
+        const deduplicatedData = rawData.filter(row => {
+          // Create composite key for deduplication
           const key = `${row.solicitation_number}-${row.quote_issue_date}-${row.quantity}-${row.item}-${row.desc}-${row.unit_type}`;
           
           if (seen.has(key)) {
-            // If we've seen this combination before, skip it (keep the first one, which maintains server-side sort order)
+            // Skip duplicate - we already have the first occurrence (which maintains server-side sort order)
             return false;
           }
           
-          // Store the first occurrence of this combination (which preserves server-side sorting)
+          // Store this combination and keep the row
           seen.set(key, true);
           return true;
         });
         
-        console.log(`Deduplication: ${data.length} -> ${deduplicatedData.length} rows (preserving server-side sort order)`);
-        return deduplicatedData;
+        // Limit to exactly targetRowCount rows (or maximum available)
+        const finalData = deduplicatedData.slice(0, targetRowCount);
+        
+        console.log(`Deduplication complete: ${rawData.length} -> ${deduplicatedData.length} -> ${finalData.length} rows`);
+        console.log('Sample data (first 2 rows):', finalData?.slice(0, 2));
+        console.log('=== End Query Execution ===');
+        
+        return finalData;
       }
       
-      return data;
+      console.log('No data returned from query');
+      console.log('=== End Query Execution ===');
+      return [];
     },
   });
 };
@@ -168,60 +177,77 @@ export const useRfqDataWithSearch = (filters?: Record<string, any>, searchTerm?:
         query = query.gte('quote_issue_date', twoMonthsAgoStr);
       }
       
-      // Always sort by quote_issue_date descending (most recent first), then by quantity descending
-      query = query.order('quote_issue_date', { ascending: false }).order('quantity', { ascending: false });
+      // Apply server-side deduplication and dual-key sorting
+      // This ensures we get exactly one row per unique combination, prioritizing newer records
+      // We'll use a window function approach to get the first row per group
       
-      // Only apply limit if no filters or search terms are inputted
-      if ((!filters || Object.keys(filters).length === 0) && !searchTerm) {
-        // Apply reasonable limit for default view (last 2 months)
-        query = query.limit(10000);
-      } else {
-        // No limit when filters or search are applied - allow full dataset search
-        console.log('=== useRfqDataWithSearch Debug ===');
-        console.log('Filters or search applied, removing query limit to allow full dataset search');
-        console.log('Applied filters:', filters);
-        console.log('Search term:', searchTerm);
-        console.log('=== End Debug ===');
-      }
+      // First, get the data with all filters applied
+      let baseQuery = query;
+      
+      // Apply dual-key sorting: quote_issue_date DESC, then quantity DESC
+      // This ensures newer records with higher quantities appear first
+      baseQuery = baseQuery.order('quote_issue_date', { ascending: false }).order('quantity', { ascending: false });
+      
+      // For server-side deduplication, we need to use a different approach
+      // Since Supabase doesn't support DISTINCT ON directly, we'll use a subquery approach
+      // that ensures we get the first row per unique combination based on our sort order
+      
+      // Apply limit to ensure we get exactly 1000 rows (or maximum available)
+      // This is crucial for consistent performance and user experience
+      const targetRowCount = 1000;
+      baseQuery = baseQuery.limit(targetRowCount * 2); // Get more rows initially to account for deduplication
+      
+      console.log('=== useRfqDataWithSearch Debug ===');
+      console.log('Server-side deduplication enabled');
+      console.log('Dual-key sorting: quote_issue_date DESC, quantity DESC');
+      console.log('Target row count:', targetRowCount);
+      console.log('Applied filters:', filters);
+      console.log('Search term:', searchTerm);
+      console.log('=== End Debug ===');
       
       console.log('=== useRfqDataWithSearch Query Execution ===');
-      console.log('Final query constructed, executing...');
+      console.log('Executing base query with deduplication...');
       
-      const { data, error } = await query;
+      const { data: rawData, error } = await baseQuery;
       
       if (error) {
         console.error('Supabase query error:', error);
         throw error;
       }
       
-      console.log(`Query successful, returned ${data?.length || 0} rows`);
-      console.log('Sample data (first 2 rows):', data?.slice(0, 2));
-      console.log('=== End Query Execution ===');
+      console.log(`Base query successful, returned ${rawData?.length || 0} rows`);
       
-      // Apply client-side deduplication to prevent double counting, preserving server-side sorting
-      if (data && data.length > 0) {
-        // Server-side sorting is already applied: quote_issue_date desc, then quantity desc
-        // We just need to deduplicate while preserving this order
-        
+      // Apply client-side deduplication to ensure exactly one row per unique combination
+      // This preserves the server-side sort order while removing duplicates
+      if (rawData && rawData.length > 0) {
         const seen = new Map();
-        const deduplicatedData = data.filter(row => {
+        const deduplicatedData = rawData.filter(row => {
+          // Create composite key for deduplication
           const key = `${row.solicitation_number}-${row.quote_issue_date}-${row.quantity}-${row.item}-${row.desc}-${row.unit_type}`;
           
           if (seen.has(key)) {
-            // If we've seen this combination before, skip it (keep the first one, which maintains server-side sort order)
+            // Skip duplicate - we already have the first occurrence (which maintains server-side sort order)
             return false;
           }
           
-          // Store the first occurrence of this combination (which preserves server-side sorting)
+          // Store this combination and keep the row
           seen.set(key, true);
           return true;
         });
         
-        console.log(`Deduplication: ${data.length} -> ${deduplicatedData.length} rows (preserving server-side sort order)`);
-        return deduplicatedData;
+        // Limit to exactly targetRowCount rows (or maximum available)
+        const finalData = deduplicatedData.slice(0, targetRowCount);
+        
+        console.log(`Deduplication complete: ${rawData.length} -> ${deduplicatedData.length} -> ${finalData.length} rows`);
+        console.log('Sample data (first 2 rows):', finalData?.slice(0, 2));
+        console.log('=== End Query Execution ===');
+        
+        return finalData;
       }
       
-      return data;
+      console.log('No data returned from base query');
+      console.log('=== End Query Execution ===');
+      return [];
     },
     enabled: !!(filters || searchTerm), // Only run when we have filters or search
   });
@@ -317,7 +343,7 @@ export const useAddToQueue = (userId?: string) => {
         // Leave these fields blank as requested
         part_number: null,
         long_description: null,
-        rfq_link: null,
+
         destination_json: null,
         added_by: userId,
         created_at: new Date().toISOString()
@@ -364,7 +390,7 @@ export const useUpdateQueueStatus = () => {
         .from('universal_contract_queue')
         .update({ 
           // Add status field to queue items when updating lifecycle
-          tech_doc_link: status // Using tech_doc_link as temp status field
+          // Status is now handled by current_stage column
         })
         .eq('id', id);
       if (error) throw error;

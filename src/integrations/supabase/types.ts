@@ -87,7 +87,7 @@ export type Database = {
       }
       rfq_index_extract: {
         Row: {
-          cde_g: boolean
+        
           desc: string | null
           id: string
           item: string
@@ -102,7 +102,6 @@ export type Database = {
           unit_type_long: string
         }
         Insert: {
-          cde_g?: boolean
           desc?: string | null
           id?: string
           item: string
@@ -117,7 +116,6 @@ export type Database = {
           unit_type_long: string
         }
         Update: {
-          cde_g?: boolean
           desc?: string | null
           id?: string
           item?: string
@@ -158,32 +156,29 @@ export type Database = {
         Row: {
           added_by: string | null
           created_at: string
+          current_stage: string | null
           destination_json: Json | null
           id: string
           long_description: string | null
           part_number: string | null
-          rfq_link: string | null
-          tech_doc_link: string | null
         }
         Insert: {
           added_by?: string | null
           created_at?: string
+          current_stage?: string | null
           destination_json?: Json | null
           id?: string
           long_description?: string | null
           part_number?: string | null
-          rfq_link?: string | null
-          tech_doc_link?: string | null
         }
         Update: {
           added_by?: string | null
           created_at?: string
+          current_stage?: string | null
           destination_json?: Json | null
           id?: string
           long_description?: string | null
           part_number?: string | null
-          rfq_link?: string | null
-          tech_doc_link?: string | null
         }
         Relationships: [
           {

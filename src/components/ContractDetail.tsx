@@ -129,7 +129,7 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                   <div>
                     <Label htmlFor="status">Current Status</Label>
                     <Badge variant="outline" className="w-full justify-center py-2">
-                      {contract.tech_doc_link || 'Analysis'}
+                      {contract.current_stage || 'Analysis'}
                     </Badge>
                   </div>
                 </div>

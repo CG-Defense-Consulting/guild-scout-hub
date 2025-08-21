@@ -9,6 +9,7 @@ import { Layout } from "@/components/Layout";
 import Auth from "./pages/Auth";
 import Scouting from "./pages/Scouting";
 import Tracker from "./pages/Tracker";
+import Trends from "./pages/Trends";
 import Hub from "./pages/Hub";
 import Unauthorized from "./pages/Unauthorized";
 import NotFound from "./pages/NotFound";
@@ -41,6 +42,14 @@ const App = () => (
                 element={
                   <ProtectedRoute allowedRoles={['CGDC']}>
                     <Tracker />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/trends" 
+                element={
+                  <ProtectedRoute allowedRoles={['CGDC']}>
+                    <Trends />
                   </ProtectedRoute>
                 } 
               />
