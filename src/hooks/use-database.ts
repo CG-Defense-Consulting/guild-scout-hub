@@ -668,3 +668,106 @@ export const useDeleteFromQueue = () => {
     },
   });
 };
+
+// Utility function to extract original filename from storage path
+export const extractOriginalFileName = (storagePath: string, contractId: string): string => {
+  try {
+    // Expected format: contract-{contractId}-{timestamp}-{encodedOriginalName}.{extension}
+    const prefix = `contract-${contractId}-`;
+    if (!storagePath.startsWith(prefix)) {
+      return 'Document';
+    }
+    
+    // Remove the prefix
+    const remaining = storagePath.substring(prefix.length);
+    
+    // Find the last dash before the encoded name (after timestamp)
+    // Timestamp format: YYYY-MM-DDTHH-MM-SS-sssZ
+    const timestampRegex = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-/;
+    const match = remaining.match(timestampRegex);
+    
+    if (match) {
+      // Extract everything after the timestamp and before the file extension
+      const afterTimestamp = remaining.substring(match[0].length);
+      const lastDotIndex = afterTimestamp.lastIndexOf('.');
+      const encodedName = lastDotIndex > 0 ? afterTimestamp.substring(0, lastDotIndex) : afterTimestamp;
+      
+      // Decode the original filename
+      const decodedName = decodeURIComponent(encodedName.replace(/_/g, '()'));
+      return decodedName || 'Document';
+    }
+    
+    return 'Document';
+  } catch (error) {
+    console.error('Error extracting filename:', error);
+    return 'Document';
+  }
+};
+
+// Hook for uploading documents to Supabase storage
+export const useUploadDocument = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ 
+      file, 
+      contractId, 
+      fileName, 
+      fileType 
+    }: { 
+      file: File; 
+      contractId: string; 
+      fileName: string; 
+      fileType: string; 
+    }) => {
+      try {
+        // Create a unique filename that encodes the original filename
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const fileExtension = file.name.split('.').pop();
+        
+        // Encode the original filename (remove extension and encode special chars)
+        const originalNameWithoutExt = fileName.replace(/\.[^/.]+$/, "");
+        const encodedOriginalName = encodeURIComponent(originalNameWithoutExt).replace(/[()]/g, '_');
+        
+        // Format: contract-{contractId}-{timestamp}-{encodedOriginalName}.{extension}
+        const uniqueFileName = `contract-${contractId}-${timestamp}-${encodedOriginalName}.${fileExtension}`;
+        
+        // Upload file to Supabase storage bucket
+        const { data, error } = await supabase.storage
+          .from('docs')
+          .upload(uniqueFileName, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+        
+        if (error) throw error;
+        
+        // Create a signed URL for the uploaded file (valid for 1 hour)
+        const { data: urlData, error: urlError } = await supabase.storage
+          .from('docs')
+          .createSignedUrl(uniqueFileName, 3600); // 1 hour expiry
+        
+        if (urlError) {
+          console.error('Error creating signed URL:', urlError);
+          throw urlError;
+        }
+        
+        return {
+          originalFileName: fileName,
+          fileType: fileType,
+          storagePath: uniqueFileName,
+          publicUrl: urlData.signedUrl,
+          uploadedAt: new Date().toISOString(),
+          contractId: contractId
+        };
+      } catch (error) {
+        console.error('Error uploading document:', error);
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      // Invalidate relevant queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ['universal_contract_queue'] });
+    },
+  });
+};

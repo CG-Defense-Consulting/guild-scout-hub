@@ -14,7 +14,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { useUpdateDestinations, useUpdateMilitaryStandards, StageTimelineEntry } from '@/hooks/use-database';
+import { useUpdateDestinations, useUpdateMilitaryStandards, useUploadDocument, extractOriginalFileName, StageTimelineEntry } from '@/hooks/use-database';
+import { supabase } from '@/integrations/supabase/client';
 import { 
   FileText, 
   Upload, 
@@ -38,8 +39,19 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
   const { toast } = useToast();
   const updateDestinations = useUpdateDestinations();
   const updateMilitaryStandards = useUpdateMilitaryStandards();
+  const uploadDocument = useUploadDocument();
   const [destinations, setDestinations] = useState<Array<{ location: string; quantity: string }>>([]);
   const [militaryStandards, setMilitaryStandards] = useState<Array<{ code: string; description: string }>>([]);
+  const [uploadedDocuments, setUploadedDocuments] = useState<Array<{
+    originalFileName: string;
+    fileType: string;
+    storagePath: string;
+    publicUrl: string;
+    uploadedAt: string;
+    contractId: string;
+  }>>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   
   // Calculate total destination quantity
   const totalDestinationQuantity = destinations.reduce((total, dest) => {
@@ -64,6 +76,69 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
       setMilitaryStandards([]);
     }
   }, [contract]);
+
+  // Load existing documents when contract changes
+  useEffect(() => {
+    const loadExistingDocuments = async () => {
+      if (!contract?.id) {
+        setUploadedDocuments([]);
+        return;
+      }
+
+      try {
+        // List files in the docs bucket that match this contract
+        const { data: files, error } = await supabase.storage
+          .from('docs')
+          .list('', {
+            search: `contract-${contract.id}-`
+          });
+
+        if (error) {
+          console.error('Error loading documents:', error);
+          return;
+        }
+
+        if (files && files.length > 0) {
+          // Get signed URLs for each file and extract original filenames
+          const documents = await Promise.all(
+            files.map(async (file) => {
+              const { data: urlData, error: urlError } = await supabase.storage
+                .from('docs')
+                .createSignedUrl(file.name, 3600); // 1 hour expiry
+
+              if (urlError) {
+                console.error('Error creating signed URL for file:', file.name, urlError);
+                return null;
+              }
+
+              // Extract the original filename from the encoded storage path
+              const originalFileName = extractOriginalFileName(file.name, contract.id);
+              
+              return {
+                originalFileName: originalFileName,
+                fileType: 'application/pdf',
+                storagePath: file.name,
+                publicUrl: urlData.signedUrl,
+                uploadedAt: file.updated_at || new Date().toISOString(),
+                contractId: contract.id
+              };
+            })
+          );
+
+          // Filter out any null entries from failed URL generation
+          const validDocuments = documents.filter(doc => doc !== null);
+          setUploadedDocuments(validDocuments);
+        } else {
+          setUploadedDocuments([]);
+        }
+      } catch (error) {
+        console.error('Error loading documents:', error);
+        setUploadedDocuments([]);
+      }
+    };
+
+    loadExistingDocuments();
+  }, [contract?.id]);
   
   // Auto-save military standards when they change
   const autoSaveMilitaryStandards = async (newStandards: Array<{ code: string; description: string }>) => {
@@ -82,6 +157,127 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
       toast({
         title: 'Auto-save Failed',
         description: 'Failed to auto-save military standards. Please try saving manually.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleFileUpload = async (file: File) => {
+    if (!file || !contract?.id) return;
+
+    // Validate file type (PDFs only)
+    if (file.type !== 'application/pdf') {
+      toast({
+        title: 'Invalid File Type',
+        description: 'Please upload a PDF file only.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        title: 'File Too Large',
+        description: 'Please upload a file smaller than 10MB.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const result = await uploadDocument.mutateAsync({
+        file,
+        contractId: contract.id,
+        fileName: file.name,
+        fileType: file.type
+      });
+
+      // Add to local state
+      setUploadedDocuments(prev => [...prev, result]);
+
+      toast({
+        title: 'Document Uploaded',
+        description: `${file.name} has been uploaded successfully.`,
+      });
+
+      // Clear the input by resetting the file input element
+      const fileInput = document.getElementById('file-upload') as HTMLInputElement;
+      if (fileInput) {
+        fileInput.value = '';
+      }
+    } catch (error) {
+      console.error('Upload failed:', error);
+      toast({
+        title: 'Upload Failed',
+        description: 'Failed to upload document. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleFileInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      await handleFileUpload(file);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    const pdfFile = files.find(file => file.type === 'application/pdf');
+    
+    if (pdfFile) {
+      await handleFileUpload(pdfFile);
+    } else {
+      toast({
+        title: 'Invalid File Type',
+        description: 'Please drop a PDF file only.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleViewDocument = async (doc: any) => {
+    try {
+      // Create a fresh signed URL for viewing (in case the old one expired)
+      const { data: urlData, error: urlError } = await supabase.storage
+        .from('docs')
+        .createSignedUrl(doc.storagePath, 3600); // 1 hour expiry
+
+      if (urlError) {
+        console.error('Error creating signed URL:', urlError);
+        toast({
+          title: 'Error',
+          description: 'Failed to generate document URL. Please try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Open the document in a new tab
+      window.open(urlData.signedUrl, '_blank');
+    } catch (error) {
+      console.error('Error viewing document:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to open document. Please try again.',
         variant: 'destructive',
       });
     }
@@ -333,22 +529,117 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-8 text-center">
+                <div 
+                  className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                    isDragOver 
+                      ? 'border-blue-500 bg-blue-50' 
+                      : 'border-muted-foreground/25'
+                  }`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
                   <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                  <h3 className="text-lg font-semibold mb-2">Upload Documents</h3>
+                  <h3 className="text-lg font-semibold mb-2">Upload PDF Documents</h3>
                   <p className="text-muted-foreground mb-4">
-                    Drag and drop files here or click to browse
+                    Drag and drop PDF files here or click to browse. Maximum file size: 10MB
                   </p>
-                  <Button onClick={() => handleStubAction('File Upload')}>
-                    Select Files
-                  </Button>
+                  <div className="flex items-center justify-center gap-2">
+                    <Input
+                      type="file"
+                      accept=".pdf"
+                      onChange={handleFileInputChange}
+                      disabled={isUploading}
+                      className="max-w-xs"
+                      id="file-upload"
+                      style={{ display: 'none' }}
+                    />
+                    <Button 
+                      onClick={() => document.getElementById('file-upload')?.click()}
+                      disabled={isUploading}
+                      className="ml-2"
+                    >
+                      {isUploading ? 'Uploading...' : 'Browse Files'}
+                    </Button>
+                  </div>
+                  {isUploading && (
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      Uploading document...
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-6">
                   <h4 className="font-medium mb-3">Existing Documents</h4>
-                  <div className="text-sm text-muted-foreground">
-                    No documents uploaded yet. Technical documentation and compliance files will appear here.
-                  </div>
+                  {uploadedDocuments.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">
+                      No documents uploaded yet. Technical documentation and compliance files will appear here.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {uploadedDocuments.map((doc, index) => (
+                        <div key={index} className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
+                          <div className="flex items-center gap-3">
+                            <FileText className="w-5 h-5 text-blue-600" />
+                            <div>
+                              <p className="font-medium text-sm">{doc.originalFileName}</p>
+                              <p className="text-xs text-muted-foreground">
+                                Uploaded: {new Date(doc.uploadedAt).toLocaleDateString()}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleViewDocument(doc)}
+                            >
+                              View
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                              onClick={async () => {
+                                try {
+                                  // Remove from Supabase storage
+                                  const { error } = await supabase.storage
+                                    .from('docs')
+                                    .remove([doc.storagePath]);
+                                  
+                                  if (error) {
+                                    console.error('Error removing file from storage:', error);
+                                    toast({
+                                      title: 'Error',
+                                      description: 'Failed to remove file from storage.',
+                                      variant: 'destructive',
+                                    });
+                                    return;
+                                  }
+                                  
+                                  // Remove from local state
+                                  setUploadedDocuments(prev => prev.filter((_, i) => i !== index));
+                                  toast({
+                                    title: 'Document Removed',
+                                    description: 'Document has been removed successfully.',
+                                  });
+                                } catch (error) {
+                                  console.error('Error removing document:', error);
+                                  toast({
+                                    title: 'Error',
+                                    description: 'Failed to remove document.',
+                                    variant: 'destructive',
+                                  });
+                                }
+                              }}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
