@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { useUpdateDestinations, StageTimelineEntry } from '@/hooks/use-database';
+import { useUpdateDestinations, useUpdateMilitaryStandards, StageTimelineEntry } from '@/hooks/use-database';
 import { 
   FileText, 
   Upload, 
@@ -37,7 +37,9 @@ interface ContractDetailProps {
 export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailProps) => {
   const { toast } = useToast();
   const updateDestinations = useUpdateDestinations();
+  const updateMilitaryStandards = useUpdateMilitaryStandards();
   const [destinations, setDestinations] = useState<Array<{ location: string; quantity: string }>>([]);
+  const [militaryStandards, setMilitaryStandards] = useState<Array<{ code: string; description: string }>>([]);
   
   // Calculate total destination quantity
   const totalDestinationQuantity = destinations.reduce((total, dest) => {
@@ -53,6 +55,37 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
       setDestinations([]);
     }
   }, [contract]);
+  
+  // Load existing military standards when contract changes
+  useEffect(() => {
+    if (contract?.mil_std && Array.isArray(contract.mil_std)) {
+      setMilitaryStandards(contract.mil_std);
+    } else {
+      setMilitaryStandards([]);
+    }
+  }, [contract]);
+  
+  // Auto-save military standards when they change
+  const autoSaveMilitaryStandards = async (newStandards: Array<{ code: string; description: string }>) => {
+    try {
+      // Set to null if no standards, otherwise use the array
+      const valueToSave = newStandards.length === 0 ? null : newStandards;
+      
+      await updateMilitaryStandards.mutateAsync({ 
+        id: contract.id, 
+        militaryStandards: valueToSave 
+      });
+      // Don't show toast for auto-save to avoid spam
+    } catch (error) {
+      console.error('Auto-save failed:', error);
+      // Show error toast for auto-save failures
+      toast({
+        title: 'Auto-save Failed',
+        description: 'Failed to auto-save military standards. Please try saving manually.',
+        variant: 'destructive',
+      });
+    }
+  };
   
   const handleSaveDestinations = async () => {
     try {
@@ -184,8 +217,111 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                     Contract details are read-only. Use the status controls above to manage the contract lifecycle.
                   </p>
                 </div>
-              </CardContent>
-            </Card>
+                
+                {/* Military Standards Section */}
+                <div className="pt-4 border-t">
+                  <div className="flex items-center justify-between mb-3">
+                    <Label className="text-base font-semibold">Military Standards</Label>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        const newStandard = { code: '', description: '' };
+                        const newStandards = [...militaryStandards, newStandard];
+                        setMilitaryStandards(newStandards);
+                        // Auto-save the new list
+                        await autoSaveMilitaryStandards(newStandards);
+                      }}
+                    >
+                      Add Standard
+                    </Button>
+                  </div>
+                  
+                  {militaryStandards.length === 0 ? (
+                    <div className="text-center py-6 border-2 border-dashed border-muted-foreground/25 rounded-lg">
+                      <p className="text-sm text-muted-foreground mb-2">No military standards added yet</p>
+                      <p className="text-xs text-muted-foreground">Click "Add Standard" to add the first one</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {militaryStandards.map((standard, index) => (
+                        <div key={index} className="flex gap-2 items-start">
+                          <div className="flex-1 space-y-2">
+                            <Input
+                              placeholder="e.g., MIL-STD-130"
+                              value={standard.code}
+                              onChange={async (e) => {
+                                const newStandards = [...militaryStandards];
+                                newStandards[index].code = e.target.value;
+                                setMilitaryStandards(newStandards);
+                                // Auto-save after a brief delay to avoid too many API calls
+                                setTimeout(() => autoSaveMilitaryStandards(newStandards), 500);
+                              }}
+                              className="font-mono text-sm"
+                            />
+                            <Textarea
+                              placeholder="Description of the standard (e.g., Marking standards for military items)"
+                              value={standard.description}
+                              onChange={async (e) => {
+                                const newStandards = [...militaryStandards];
+                                newStandards[index].description = e.target.value;
+                                setMilitaryStandards(newStandards);
+                                // Auto-save after a brief delay to avoid too many API calls
+                                setTimeout(() => autoSaveMilitaryStandards(newStandards), 500);
+                              }}
+                              rows={2}
+                              className="text-sm"
+                            />
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={async () => {
+                              const newStandards = militaryStandards.filter((_, i) => i !== index);
+                              setMilitaryStandards(newStandards);
+                              // Auto-save the updated list
+                              await autoSaveMilitaryStandards(newStandards);
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
+                                         </div>
+                   )}
+                   
+                   {militaryStandards.length > 0 && (
+                     <div className="pt-3 border-t">
+                       <Button
+                         size="sm"
+                         onClick={async () => {
+                           try {
+                             await updateMilitaryStandards.mutateAsync({ 
+                               id: contract.id, 
+                               militaryStandards 
+                             });
+                             toast({
+                               title: 'Military Standards Saved',
+                               description: 'Military standards have been updated successfully.',
+                             });
+                           } catch (error) {
+                             toast({
+                               title: 'Error',
+                               description: 'Failed to save military standards. Please try again.',
+                               variant: 'destructive',
+                             });
+                           }
+                         }}
+                         disabled={updateMilitaryStandards.isPending}
+                       >
+                         {updateMilitaryStandards.isPending ? 'Saving...' : 'Save Standards'}
+                       </Button>
+                     </div>
+                   )}
+                 </div>
+               </CardContent>
+             </Card>
           </TabsContent>
 
           <TabsContent value="documents" className="space-y-4">

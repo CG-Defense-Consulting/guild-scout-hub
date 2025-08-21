@@ -1,10 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { useUpdateQueueStatus } from '@/hooks/use-database';
+import { useUpdateQueueStatus, useDeleteFromQueue } from '@/hooks/use-database';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { Calendar, Package, Eye, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Calendar, Package, Eye, ArrowRight, ArrowLeft, Trash2, ExternalLink, FileText, Database } from 'lucide-react';
 
 interface KanbanBoardProps {
   columns: string[];
@@ -24,6 +24,7 @@ export const KanbanBoard = ({
   const { toast } = useToast();
   const { user } = useAuth();
   const updateStatus = useUpdateQueueStatus();
+  const deleteFromQueue = useDeleteFromQueue();
 
   // Define stage transition rules
   const stageTransitions: Record<string, { forward: string[], backward: string[] }> = {
@@ -91,6 +92,37 @@ export const KanbanBoard = ({
     }
   };
 
+  const handleDeleteContract = async (contractId: string, solicitationNumber: string) => {
+    // Use a more user-friendly confirmation dialog
+    const contractIdentifier = solicitationNumber || contractId;
+    const isConfirmed = window.confirm(
+      `Are you sure you want to delete contract "${contractIdentifier}"?\n\n` +
+      `This action will:\n` +
+      `• Remove the contract from the queue\n` +
+      `• Delete all associated timeline data\n` +
+      `• Cannot be undone\n\n` +
+      `Click OK to confirm deletion.`
+    );
+    
+    if (!isConfirmed) {
+      return;
+    }
+
+    try {
+      await deleteFromQueue.mutateAsync(contractId);
+      toast({
+        title: 'Contract Deleted',
+        description: `Contract "${contractIdentifier}" has been removed from the queue`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to delete contract. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const ContractCard = ({ contract, currentColumn }: { contract: any; currentColumn: string }) => {
     const currentStage = contract.current_stage || currentColumn;
     const validTransitions = getValidTransitions(currentStage);
@@ -128,15 +160,78 @@ export const KanbanBoard = ({
             
             {/* Right side - Stage transitions and view button */}
             <div className="flex flex-col items-end gap-2 min-w-0">
-              {/* View button */}
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-6 w-6 p-0 flex-shrink-0"
-                onClick={() => onContractClick(contract)}
-              >
-                <Eye className="w-3 h-3" />
-              </Button>
+              {/* Action buttons row - all inline */}
+              <div className="flex gap-1">
+                {/* RFQ PDF Link */}
+                {contract.solicitation_number && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 p-0 flex-shrink-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                    onClick={() => {
+                      const lastChar = contract.solicitation_number.slice(-1);
+                      const url = `https://dibbs2.bsm.dla.mil/Downloads/RFQ/${lastChar}/${contract.solicitation_number}.PDF`;
+                      window.open(url, '_blank');
+                    }}
+                    title="View RFQ PDF"
+                  >
+                    <FileText className="w-3 h-3" />
+                  </Button>
+                )}
+                
+                {/* Tech Doc Link */}
+                {contract.solicitation_number && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 p-0 flex-shrink-0 text-green-600 hover:text-green-700 hover:bg-green-50"
+                    onClick={() => {
+                      const url = `https://pcf1x.bsm.dla.mil/cfolders/fol_de.htm?p_sol_no=${contract.solicitation_number}`;
+                      window.open(url, '_blank');
+                    }}
+                    title="View Technical Documentation"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                  </Button>
+                )}
+                
+                {/* NSN Detail Link */}
+                {contract.national_stock_number && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 p-0 flex-shrink-0 text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                    onClick={() => {
+                      const url = `https://www.dibbs.bsm.dla.mil/RFQ/RFQNsn.aspx?value=${contract.national_stock_number}&category=nsn`;
+                      window.open(url, '_blank');
+                    }}
+                    title="View NSN Details"
+                  >
+                    <Database className="w-3 h-3" />
+                  </Button>
+                )}
+                
+                {/* View button */}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 w-6 p-0 flex-shrink-0"
+                  onClick={() => onContractClick(contract)}
+                >
+                  <Eye className="w-3 h-3" />
+                </Button>
+                
+                {/* Delete button */}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 w-6 p-0 flex-shrink-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                  onClick={() => handleDeleteContract(contract.id, contract.solicitation_number)}
+                  disabled={deleteFromQueue.isPending}
+                >
+                  <Trash2 className="w-3 h-3" />
+                </Button>
+              </div>
               
               {/* Stage transition buttons */}
               {validTransitions.all.length > 0 && (
@@ -196,10 +291,10 @@ export const KanbanBoard = ({
         return (
           <div key={columnName} className="space-y-3">
             <Card className="bg-guild-brand-bg/50">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium flex items-center justify-between">
-                  {columnName}
-                  <Badge variant="outline" className="ml-2">
+              <CardHeader className="py-3 px-4">
+                <CardTitle className="text-sm font-medium flex items-center justify-between h-6">
+                  <span className="flex items-center">{columnName}</span>
+                  <Badge variant="outline" className="ml-2 flex-shrink-0">
                     {columnContracts.length}
                   </Badge>
                 </CardTitle>

@@ -10,11 +10,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ChevronLeft, ChevronRight, Search, ChevronUp, ChevronDown, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface Column {
   accessorKey?: string;
   id?: string;
   header: string;
+  headerClassName?: string;
   cell?: ({ getValue, row }: any) => React.ReactNode;
 }
 
@@ -275,7 +277,10 @@ export const DataTable = ({ data, columns, loading, searchable = true, onSearchC
                   return (
                     <TableHead 
                       key={key}
-                      className="cursor-pointer hover:bg-muted/50 transition-colors"
+                      className={cn(
+                        "cursor-pointer hover:bg-muted/50 transition-colors",
+                        column.headerClassName
+                      )}
                       onClick={() => key && handleSort(key)}
                     >
                       <div className="flex items-center gap-2">

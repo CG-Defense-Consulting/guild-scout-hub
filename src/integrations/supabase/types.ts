@@ -160,6 +160,7 @@ export type Database = {
           destination_json: Json | null
           id: string
           long_description: string | null
+          mil_std: Json | null
           part_number: string | null
           stage_timeline: Json | null
         }
@@ -170,6 +171,7 @@ export type Database = {
           destination_json?: Json | null
           id?: string
           long_description?: string | null
+          mil_std?: Json | null
           part_number?: string | null
           stage_timeline?: Json | null
         }
@@ -180,6 +182,7 @@ export type Database = {
           destination_json?: Json | null
           id?: string
           long_description?: string | null
+          mil_std?: Json | null
           part_number?: string | null
           stage_timeline?: Json | null
         }

@@ -365,7 +365,7 @@ export const useAddToQueue = (userId?: string) => {
         added_by: userId,
         created_at: new Date().toISOString(),
         current_stage: 'Analysis',
-        stage_timeline: initialTimeline
+        stage_timeline: initialTimeline as any
       };
 
       // Insert new record - the id field will automatically reference rfq_index_extract.id
@@ -416,7 +416,7 @@ export const useUpdateQueueStatus = () => {
       
       // Parse existing timeline or create new array
       const existingTimeline: StageTimelineEntry[] = currentRecord?.stage_timeline ? 
-        (Array.isArray(currentRecord.stage_timeline) ? currentRecord.stage_timeline as StageTimelineEntry[] : []) : 
+        (Array.isArray(currentRecord.stage_timeline) ? currentRecord.stage_timeline as any : []) : 
         [];
       
       // Create new timeline entry
@@ -435,7 +435,7 @@ export const useUpdateQueueStatus = () => {
         .from('universal_contract_queue')
         .update({ 
           current_stage: status,
-          stage_timeline: updatedTimeline
+          stage_timeline: updatedTimeline as any
         })
         .eq('id', id);
         
@@ -458,6 +458,125 @@ export const useUpdateDestinations = () => {
         .update({ 
           destination_json: destinations
         })
+        .eq('id', id);
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['universal_contract_queue'] });
+    },
+  });
+};
+
+export const useUpdateMilitaryStandards = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ id, militaryStandards }: { id: string; militaryStandards: Array<{ code: string; description: string }> | null }) => {
+      const { data, error } = await supabase
+        .from('universal_contract_queue')
+        .update({ 
+          mil_std: militaryStandards
+        })
+        .eq('id', id);
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['universal_contract_queue'] });
+    },
+  });
+};
+
+// Hook for fetching trends data without row limits
+export const useTrendsData = (startDate: string, endDate: string) => {
+  return useQuery({
+    queryKey: ['trends_data', startDate, endDate],
+    queryFn: async () => {
+      try {
+        // Fetch RFQ data in batches of 1000 until we get all data
+        let allRfqData: any[] = [];
+        let hasMoreRfq = true;
+        let rfqOffset = 0;
+        const rfqBatchSize = 1000;
+        
+        while (hasMoreRfq) {
+          const { data: rfqBatch, error: rfqError } = await supabase
+            .from('rfq_index_extract')
+            .select('*')
+            .gte('quote_issue_date', startDate)
+            .lte('quote_issue_date', endDate)
+            .order('quote_issue_date', { ascending: false })
+            .range(rfqOffset, rfqOffset + rfqBatchSize - 1);
+          
+          if (rfqError) throw rfqError;
+          
+          if (rfqBatch && rfqBatch.length > 0) {
+            allRfqData = [...allRfqData, ...rfqBatch];
+            rfqOffset += rfqBatchSize;
+            
+            // If we got less than the batch size, we've reached the end
+            if (rfqBatch.length < rfqBatchSize) {
+              hasMoreRfq = false;
+            }
+          } else {
+            hasMoreRfq = false;
+          }
+        }
+        
+        // Fetch award history data in batches of 1000 until we get all data
+        let allAwardData: any[] = [];
+        let hasMoreAwards = true;
+        let awardOffset = 0;
+        const awardBatchSize = 1000;
+        
+        while (hasMoreAwards) {
+          const { data: awardBatch, error: awardError } = await supabase
+            .from('award_history')
+            .select('*')
+            .gte('awd_date', startDate)
+            .lte('awd_date', endDate)
+            .order('awd_date', { ascending: false })
+            .range(awardOffset, awardOffset + awardBatchSize - 1);
+          
+          if (awardError) throw awardError;
+          
+          if (awardBatch && awardBatch.length > 0) {
+            allAwardData = [...allAwardData, ...awardBatch];
+            awardOffset += awardBatchSize;
+            
+            // If we got less than the batch size, we've reached the end
+            if (awardBatch.length < awardBatchSize) {
+              hasMoreAwards = false;
+            }
+          } else {
+            hasMoreAwards = false;
+          }
+        }
+        
+        console.log(`Fetched ${allRfqData.length} RFQ records and ${allAwardData.length} award records for period ${startDate} to ${endDate}`);
+        
+        return {
+          rfqData: allRfqData,
+          awardData: allAwardData,
+        };
+      } catch (error) {
+        console.error('Error fetching trends data:', error);
+        return { rfqData: [], awardData: [] };
+      }
+    },
+    enabled: !!startDate && !!endDate,
+  });
+};
+
+export const useDeleteFromQueue = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data, error } = await supabase
+        .from('universal_contract_queue')
+        .delete()
         .eq('id', id);
       if (error) throw error;
       return data;

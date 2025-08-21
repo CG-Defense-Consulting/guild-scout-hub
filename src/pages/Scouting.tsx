@@ -13,7 +13,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Search, Plus, TrendingUp, Calendar, Package, Tag, Filter, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Plus, TrendingUp, Calendar, Package, Tag, Filter, X, ChevronDown, ChevronUp, ExternalLink, FileText, Database } from 'lucide-react';
 
 export const Scouting = () => {
   const { toast } = useToast();
@@ -263,6 +263,7 @@ export const Scouting = () => {
     {
       id: 'actions',
       header: 'Actions',
+      headerClassName: 'w-48', // Set fixed width for Actions column
       cell: ({ row }: any) => (
         <div className={`flex ${isMobile ? 'flex-col space-y-2' : 'gap-2'}`}>
           <Button
@@ -285,6 +286,61 @@ export const Scouting = () => {
             <Plus className="w-3 h-3 mr-1" />
             {isMobile ? 'Add to Queue' : 'Queue'}
           </Button>
+          
+          {/* External Links Row */}
+          <div className={`flex ${isMobile ? 'flex-col space-y-1' : 'gap-1'} mt-1`}>
+            {/* RFQ PDF Link */}
+            {row.original.solicitation_number && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                onClick={() => {
+                  const lastChar = row.original.solicitation_number.slice(-1);
+                  const url = `https://dibbs2.bsm.dla.mil/Downloads/RFQ/${lastChar}/${row.original.solicitation_number}.PDF`;
+                  window.open(url, '_blank');
+                }}
+                title="View RFQ PDF"
+              >
+                <FileText className="w-3 h-3 mr-1" />
+                PDF
+              </Button>
+            )}
+            
+            {/* Tech Doc Link */}
+            {row.original.solicitation_number && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs text-green-600 hover:text-green-700 hover:bg-green-50"
+                onClick={() => {
+                  const url = `https://pcf1x.bsm.dla.mil/cfolders/fol_de.htm?p_sol_no=${row.original.solicitation_number}`;
+                  window.open(url, '_blank');
+                }}
+                title="View Technical Documentation"
+              >
+                <ExternalLink className="w-3 h-3 mr-1" />
+                Tech
+              </Button>
+            )}
+            
+            {/* NSN Detail Link */}
+            {row.original.national_stock_number && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                onClick={() => {
+                  const url = `https://www.dibbs.bsm.dla.mil/RFQ/RFQNsn.aspx?value=${row.original.national_stock_number}&category=nsn`;
+                  window.open(url, '_blank');
+                }}
+                title="View NSN Details"
+              >
+                <Database className="w-3 h-3 mr-1" />
+                NSN
+              </Button>
+              )}
+          </div>
         </div>
       ),
     },

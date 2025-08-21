@@ -5,9 +5,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Calendar, TrendingUp, BarChart3, PieChart, Activity, DollarSign, Package, Award } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useTrendsData } from '@/hooks/use-database';
 
 // Chart components with fallback
 import { LineChart, Line, BarChart, Bar, PieChart as RechartsPieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -48,49 +47,22 @@ export const Trends = () => {
 
   const { start, end } = getDateRange();
 
-  // Fetch RFQ data for the selected date range
-  const { data: rfqData = [], isLoading: rfqLoading, error: rfqError } = useQuery({
-    queryKey: ['trends_rfq_data', start, end],
-    queryFn: async () => {
-      try {
-        const { data, error } = await supabase
-          .from('rfq_index_extract')
-          .select('*')
-          .gte('quote_issue_date', start)
-          .lte('quote_issue_date', end)
-          .order('quote_issue_date', { ascending: false });
-        
-        if (error) throw error;
-        return Array.isArray(data) ? data : [];
-      } catch (error) {
-        console.error('Error fetching RFQ data:', error);
-        return [];
-      }
-    },
-    enabled: true,
-  });
-
-  // Fetch award history data for the selected date range
-  const { data: awardData = [], isLoading: awardLoading, error: awardError } = useQuery({
-    queryKey: ['trends_award_data', start, end],
-    queryFn: async () => {
-      try {
-        const { data, error } = await supabase
-          .from('award_history')
-          .select('*')
-          .gte('awd_date', start)
-          .lte('awd_date', end)
-          .order('awd_date', { ascending: false });
-        
-        if (error) throw error;
-        return Array.isArray(data) ? data : [];
-      } catch (error) {
-        console.error('Error fetching award data:', error);
-        return [];
-      }
-    },
-    enabled: true,
-  });
+  // Fetch trends data using the dedicated hook (no row limits)
+  const { data: trendsData, isLoading: trendsLoading, error: trendsError } = useTrendsData(start, end);
+  
+  const rfqData = trendsData?.rfqData || [];
+  const awardData = trendsData?.awardData || [];
+  const rfqLoading = trendsLoading;
+  const awardLoading = trendsLoading;
+  const rfqError = trendsError;
+  const awardError = trendsError;
+  
+  // Show data count for debugging
+  const dataInfo = useMemo(() => {
+    if (trendsLoading) return 'Loading data...';
+    if (trendsError) return 'Error loading data';
+    return `${rfqData.length.toLocaleString()} RFQ records, ${awardData.length.toLocaleString()} award records`;
+  }, [trendsLoading, trendsError, rfqData.length, awardData.length]);
 
   // Calculate key metrics
   const metrics = useMemo(() => {
@@ -244,6 +216,9 @@ export const Trends = () => {
         <div>
           <h1 className="text-2xl md:text-3xl font-semibold text-guild-brand-fg">Contracting Trends</h1>
           <p className="text-muted-foreground">Analytics and insights from recent contract activity</p>
+          <div className="text-sm text-muted-foreground mt-2">
+            {dataInfo}
+          </div>
         </div>
         
         {/* Controls */}
