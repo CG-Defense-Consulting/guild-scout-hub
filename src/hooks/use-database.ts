@@ -70,6 +70,29 @@ export const useRfqData = (filters?: Record<string, any>) => {
       console.log('Sample data (first 2 rows):', data?.slice(0, 2));
       console.log('=== End Query Execution ===');
       
+      // Apply client-side deduplication to prevent double counting, preserving server-side sorting
+      if (data && data.length > 0) {
+        // Server-side sorting is already applied: quote_issue_date desc, then quantity desc
+        // We just need to deduplicate while preserving this order
+        
+        const seen = new Map();
+        const deduplicatedData = data.filter(row => {
+          const key = `${row.solicitation_number}-${row.quote_issue_date}-${row.quantity}-${row.item}-${row.desc}-${row.unit_type}`;
+          
+          if (seen.has(key)) {
+            // If we've seen this combination before, skip it (keep the first one, which maintains server-side sort order)
+            return false;
+          }
+          
+          // Store the first occurrence of this combination (which preserves server-side sorting)
+          seen.set(key, true);
+          return true;
+        });
+        
+        console.log(`Deduplication: ${data.length} -> ${deduplicatedData.length} rows (preserving server-side sort order)`);
+        return deduplicatedData;
+      }
+      
       return data;
     },
   });
@@ -175,6 +198,29 @@ export const useRfqDataWithSearch = (filters?: Record<string, any>, searchTerm?:
       console.log('Sample data (first 2 rows):', data?.slice(0, 2));
       console.log('=== End Query Execution ===');
       
+      // Apply client-side deduplication to prevent double counting, preserving server-side sorting
+      if (data && data.length > 0) {
+        // Server-side sorting is already applied: quote_issue_date desc, then quantity desc
+        // We just need to deduplicate while preserving this order
+        
+        const seen = new Map();
+        const deduplicatedData = data.filter(row => {
+          const key = `${row.solicitation_number}-${row.quote_issue_date}-${row.quantity}-${row.item}-${row.desc}-${row.unit_type}`;
+          
+          if (seen.has(key)) {
+            // If we've seen this combination before, skip it (keep the first one, which maintains server-side sort order)
+            return false;
+          }
+          
+          // Store the first occurrence of this combination (which preserves server-side sorting)
+          seen.set(key, true);
+          return true;
+        });
+        
+        console.log(`Deduplication: ${data.length} -> ${deduplicatedData.length} rows (preserving server-side sort order)`);
+        return deduplicatedData;
+      }
+      
       return data;
     },
     enabled: !!(filters || searchTerm), // Only run when we have filters or search
@@ -224,7 +270,7 @@ export const useContractQueue = () => {
       if (error) throw error;
       
       // Transform the data to flatten the nested structure for easier use
-      return data?.map(contract => ({
+      let transformedData = data?.map(contract => ({
         ...contract,
         // Flatten the nested RFQ data
         solicitation_number: contract.rfq_index_extract?.solicitation_number,
@@ -244,6 +290,17 @@ export const useContractQueue = () => {
           return item && desc ? `${item} | ${desc}` : item || desc;
         })()
       })) || [];
+      
+      // Sort by quote_issue_date descending to prioritize newer RFQ data
+      if (transformedData.length > 0) {
+        transformedData.sort((a, b) => {
+          const dateA = a.quote_issue_date ? new Date(a.quote_issue_date) : new Date(0);
+          const dateB = b.quote_issue_date ? new Date(b.quote_issue_date) : new Date(0);
+          return dateB.getTime() - dateA.getTime(); // Descending order (newest first)
+        });
+      }
+      
+      return transformedData;
     },
   });
 };

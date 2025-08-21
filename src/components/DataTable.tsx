@@ -9,13 +9,19 @@ import {
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ChevronLeft, ChevronRight, Search, ChevronUp, ChevronDown } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 
 interface Column {
   accessorKey?: string;
   id?: string;
   header: string;
   cell?: ({ getValue, row }: any) => React.ReactNode;
+}
+
+interface SortConfig {
+  key: string;
+  direction: 'asc' | 'desc';
+  priority: number; // Lower number = higher priority
 }
 
 interface DataTableProps {
@@ -25,77 +31,105 @@ interface DataTableProps {
   searchable?: boolean;
   onSearchChange?: (searchTerm: string) => void;
   externalSearchTerm?: string;
-  externalSortConfig?: {
-    key: string | null;
-    direction: 'asc' | 'desc';
-  };
-  onSortChange?: (sortConfig: { key: string | null; direction: 'asc' | 'desc' }) => void;
+  externalSortConfig?: SortConfig[];
+  onSortChange?: (sortConfig: SortConfig[]) => void;
   isMobile?: boolean;
 }
 
 export const DataTable = ({ data, columns, loading, searchable = true, onSearchChange, externalSearchTerm, externalSortConfig, onSortChange, isMobile = false }: DataTableProps) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [localSearchTerm, setLocalSearchTerm] = useState('');
-  const [localSortConfig, setLocalSortConfig] = useState<{
-    key: string | null;
-    direction: 'asc' | 'desc';
-  }>({ key: null, direction: 'asc' });
+  const [localSortConfig, setLocalSortConfig] = useState<SortConfig[]>([]);
   const itemsPerPage = 10;
 
   // Use external search term if provided, otherwise use local
   const searchTerm = externalSearchTerm !== undefined ? externalSearchTerm : localSearchTerm;
   
   // Use external sort config if provided, otherwise use local
-  const sortConfig = externalSortConfig !== undefined ? externalSortConfig : localSortConfig;
+  // Ensure sortConfig is always an array to prevent "not iterable" errors
+  const sortConfig = (externalSortConfig !== undefined ? externalSortConfig : localSortConfig) || [];
 
-  // Sorting function
+  // Sorting function for multiple columns
   const sortData = (data: any[]) => {
-    if (!sortConfig.key) return data;
+    // Ensure sortConfig is an array and has items
+    if (!Array.isArray(sortConfig) || sortConfig.length === 0) return data;
+
+    // Sort by priority (lower number = higher priority)
+    const sortedConfig = [...sortConfig].sort((a, b) => a.priority - b.priority);
 
     return [...data].sort((a, b) => {
-      let aValue = a[sortConfig.key!];
-      let bValue = b[sortConfig.key!];
+      for (const config of sortedConfig) {
+        let aValue = a[config.key];
+        let bValue = b[config.key];
 
-      // Handle null/undefined values
-      if (aValue == null) aValue = '';
-      if (bValue == null) bValue = '';
+        // Handle null/undefined values
+        if (aValue == null) aValue = '';
+        if (bValue == null) bValue = '';
 
-      // Determine if values are numeric and sort accordingly
-      const aNum = Number(aValue);
-      const bNum = Number(bValue);
-      
-      // Check if both values are valid numbers
-      if (!isNaN(aNum) && !isNaN(bNum)) {
-        // Numeric sorting
-        if (aNum < bNum) {
-          return sortConfig.direction === 'asc' ? -1 : 1;
-        }
-        if (aNum > bNum) {
-          return sortConfig.direction === 'asc' ? 1 : -1;
-        }
-        return 0;
-      } else {
-        // String sorting for non-numeric values
-        aValue = String(aValue).toLowerCase();
-        bValue = String(bValue).toLowerCase();
+        // Determine if values are numeric and sort accordingly
+        const aNum = Number(aValue);
+        const bNum = Number(bValue);
+        
+        // Check if both values are valid numbers
+        if (!isNaN(aNum) && !isNaN(bNum)) {
+          // Numeric sorting
+          if (aNum < bNum) {
+            return config.direction === 'asc' ? -1 : 1;
+          }
+          if (aNum > bNum) {
+            return config.direction === 'asc' ? 1 : -1;
+          }
+          // If equal, continue to next sort column
+          continue;
+        } else {
+          // String sorting for non-numeric values
+          aValue = String(aValue).toLowerCase();
+          bValue = String(bValue).toLowerCase();
 
-        if (aValue < bValue) {
-          return sortConfig.direction === 'asc' ? -1 : 1;
+          if (aValue < bValue) {
+            return config.direction === 'asc' ? -1 : 1;
+          }
+          if (aValue > bValue) {
+            return config.direction === 'asc' ? 1 : -1;
+          }
+          // If equal, continue to next sort column
+          continue;
         }
-        if (aValue > bValue) {
-          return sortConfig.direction === 'asc' ? 1 : -1;
-        }
-        return 0;
       }
+      return 0; // All sort columns are equal
     });
   };
 
   // Handle column sorting
   const handleSort = (key: string) => {
-    const newSortConfig = {
-      key,
-      direction: sortConfig.key === key && sortConfig.direction === 'asc' ? 'desc' : 'asc'
-    };
+    let newSortConfig: SortConfig[];
+    
+    // Ensure sortConfig is an array
+    const currentSortConfig = Array.isArray(sortConfig) ? sortConfig : [];
+    
+    // Check if column is already in sort config
+    const existingIndex = currentSortConfig.findIndex(config => config.key === key);
+    
+    if (existingIndex >= 0) {
+      const existing = sortConfig[existingIndex];
+      
+      // Cycle through: asc -> desc -> remove
+      if (existing.direction === 'asc') {
+        // Change to desc
+        newSortConfig = currentSortConfig.map((config, index) => 
+          index === existingIndex 
+            ? { ...config, direction: 'desc' as const }
+            : config
+        );
+      } else {
+        // Remove this column from sorting
+        newSortConfig = currentSortConfig.filter((_, index) => index !== existingIndex);
+      }
+    } else {
+      // Add new column with highest priority (lowest number)
+      const newPriority = currentSortConfig.length > 0 ? Math.max(...currentSortConfig.map(c => c.priority)) + 1 : 1;
+      newSortConfig = [...currentSortConfig, { key, direction: 'asc', priority: newPriority }];
+    }
     
     if (onSortChange) {
       onSortChange(newSortConfig);
@@ -104,6 +138,34 @@ export const DataTable = ({ data, columns, loading, searchable = true, onSearchC
     }
     
     setCurrentPage(1); // Reset to first page when sorting
+  };
+
+  // Remove a column from sorting
+  const removeSort = (key: string) => {
+    // Ensure sortConfig is an array
+    const currentSortConfig = Array.isArray(sortConfig) ? sortConfig : [];
+    const newSortConfig = currentSortConfig.filter(config => config.key !== key);
+    
+    if (onSortChange) {
+      onSortChange(newSortConfig);
+    } else {
+      setLocalSortConfig(newSortConfig);
+    }
+    
+    setCurrentPage(1);
+  };
+
+  // Get sort info for a column
+  const getColumnSortInfo = (key: string) => {
+    // Ensure sortConfig is an array
+    const currentSortConfig = Array.isArray(sortConfig) ? sortConfig : [];
+    const config = currentSortConfig.find(c => c.key === key);
+    if (!config) return null;
+    
+    return {
+      direction: config.direction,
+      priority: config.priority
+    };
   };
 
   const filteredData = searchTerm
@@ -150,6 +212,8 @@ export const DataTable = ({ data, columns, loading, searchable = true, onSearchC
           />
         </div>
       )}
+
+
 
       {/* Mobile Card Layout */}
       {isMobile ? (
@@ -206,7 +270,7 @@ export const DataTable = ({ data, columns, loading, searchable = true, onSearchC
               <TableRow>
                 {columns.map((column) => {
                   const key = column.accessorKey || column.id;
-                  const isSorted = sortConfig.key === key;
+                  const sortInfo = getColumnSortInfo(key);
                   
                   return (
                     <TableHead 
@@ -216,14 +280,19 @@ export const DataTable = ({ data, columns, loading, searchable = true, onSearchC
                     >
                       <div className="flex items-center gap-2">
                         <span>{column.header}</span>
-                        {isSorted && (
-                          <span className="text-guild-accent-1">
-                            {sortConfig.direction === 'asc' ? (
-                              <ChevronUp className="w-4 h-4" />
-                            ) : (
-                              <ChevronDown className="w-4 h-4" />
-                            )}
-                          </span>
+                        {sortInfo && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-guild-accent-1">
+                              {sortInfo.direction === 'asc' ? (
+                                <ChevronUp className="w-4 h-4" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4" />
+                              )}
+                            </span>
+                            <span className="text-xs text-muted-foreground bg-muted px-1 rounded">
+                              {sortInfo.priority}
+                            </span>
+                          </div>
                         )}
                       </div>
                     </TableHead>

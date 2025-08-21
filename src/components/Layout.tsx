@@ -20,9 +20,16 @@ export const Layout = () => {
         <AppSidebar />
         <div className="flex-1 flex flex-col">
           <header className="h-14 flex items-center justify-between px-4 border-b bg-guild-brand-bg">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <SidebarTrigger />
-              <h1 className="text-lg font-semibold text-guild-brand-fg">GUILD</h1>
+              <div className="flex items-center gap-2">
+                <img 
+                  src="/CGDC-logo.png" 
+                  alt="CGDC Logo" 
+                  className="h-8 w-auto"
+                />
+                <h1 className="text-lg font-semibold text-guild-brand-fg">GUILD</h1>
+              </div>
             </div>
             
             <div className="flex items-center gap-3">

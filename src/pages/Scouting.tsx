@@ -30,14 +30,30 @@ export const Scouting = () => {
   // Search term state for server-side search
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Sort configuration state
-  const [sortConfig, setSortConfig] = useState<{
-    key: string | null;
+  // Sort configuration state - now supports multi-column sorting
+  // Default: sort by quote_issue_date descending (newest first) with priority 1
+  const [sortConfig, setSortConfig] = useState<Array<{
+    key: string;
     direction: 'asc' | 'desc';
-  }>({ key: null, direction: 'asc' });
+    priority: number;
+  }>>([{ key: 'quote_issue_date', direction: 'desc', priority: 1 }]);
   
   // Category definitions with NSN prefixes
   const categories = [
+    {
+      id: 'weapons',
+      name: 'Weapons',
+      description: 'Weapons and weapon systems',
+      prefixes: ['1005', '1010', '1015', '1020', '1025', '1030', '1035', '1040', '1045', '1055', '1070', '1080', '1090', '1095'],
+      color: 'bg-red-100 text-red-800 border-red-200'
+    },
+    {
+      id: 'electrical',
+      name: 'Electrical/Electronic',
+      description: 'Electrical and electronic equipment components',
+      prefixes: ['5905', '5910', '5915', '5920', '5925', '5930', '5935', '5940', '5945', '5950', '5955', '5960', '5961', '5962', '5963', '5965', '5970', '5975', '5977', '5980', '5985', '5990', '5995', '5996', '5998', '5999'],
+      color: 'bg-purple-100 text-purple-800 border-purple-200'
+    },
     {
       id: 'textiles',
       name: 'Textiles',
@@ -115,14 +131,13 @@ export const Scouting = () => {
   // Filter the data based on selected categories
   const filteredRfqData = rfqData.filter(rfq => matchesCategoryFilter(rfq.national_stock_number));
 
+  // Calculate how many RFQ records have award history
+  const rfqRecordsWithAwardHistory = allAwardHistory ? 
+    filteredRfqData.filter(rfq => allAwardHistory.includes(rfq.national_stock_number)).length : 0;
 
 
-  // Set default sort to quote_issue_date descending to prioritize most recent opportunities
-  React.useEffect(() => {
-    if (!sortConfig.key) {
-      setSortConfig({ key: 'quote_issue_date', direction: 'desc' });
-    }
-  }, []);
+
+
 
   // Handle mobile state changes
   React.useEffect(() => {
@@ -388,7 +403,7 @@ export const Scouting = () => {
                   </Button>
                 )}
               </div>
-              <div className="grid grid-cols-1 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                 {categories.map((category) => (
                   <div
                     key={category.id}
@@ -405,14 +420,14 @@ export const Scouting = () => {
                       onChange={() => handleCategoryToggle(category.id)}
                       className="data-[state=checked]:bg-guild-accent-1 data-[state=checked]:border-guild-accent-1"
                     />
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <Label
                         htmlFor={category.id}
-                        className="text-sm font-medium cursor-pointer"
+                        className="text-sm font-medium cursor-pointer truncate"
                       >
                         {category.name}
                       </Label>
-                      <p className="text-xs text-muted-foreground mt-1">
+                      <p className="text-xs text-muted-foreground mt-1 truncate">
                         {category.description}
                       </p>
                     </div>
@@ -422,54 +437,91 @@ export const Scouting = () => {
             </div>
 
             {/* Existing Filters */}
-            <form onSubmit={handleFilterChange} className="grid grid-cols-1 gap-4">
-              <div>
-                <Label htmlFor="national_stock_number">NSN</Label>
-                <Input
-                  id="national_stock_number"
-                  name="national_stock_number"
-                  placeholder="e.g. 5330-01-123"
-                />
-              </div>
-              <div>
-                <Label htmlFor="desc">Description</Label>
-                <Input
-                  id="desc"
-                  name="desc"
-                  placeholder="Search description"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="quantity_min">Min Quantity</Label>
+            <form onSubmit={handleFilterChange} className="space-y-6">
+              {/* Basic Search Fields */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-1">
+                  <Label htmlFor="national_stock_number">NSN</Label>
                   <Input
-                    id="quantity_min"
-                    name="quantity_min"
-                    type="number"
-                    placeholder="0"
+                    id="national_stock_number"
+                    name="national_stock_number"
+                    placeholder="e.g. 5330-01-123"
+                    maxLength={15}
+                    className="font-mono"
                   />
                 </div>
-                <div>
-                  <Label htmlFor="quote_issue_date_from">Issue Date From</Label>
+                <div className="md:col-span-1">
+                  <Label htmlFor="solicitation_number">Solicitation Number</Label>
                   <Input
-                    id="quote_issue_date_from"
-                    name="quote_issue_date_from"
-                    type="date"
-                    placeholder="Start date"
+                    id="solicitation_number"
+                    name="solicitation_number"
+                    placeholder="e.g. N00123"
+                    maxLength={15}
+                    className="font-mono"
+                  />
+                </div>
+                <div className="md:col-span-1">
+                  <Label htmlFor="desc">Description</Label>
+                  <Input
+                    id="desc"
+                    name="desc"
+                    placeholder="Search description"
                   />
                 </div>
               </div>
-              <div>
-                <Label htmlFor="quote_issue_date_to">Issue Date To</Label>
-                <Input
-                  id="quote_issue_date_to"
-                  name="quote_issue_date_to"
-                  type="date"
-                  placeholder="End date"
-                />
-                <p className="text-xs text-muted-foreground mt-1">Leave blank for no end limit</p>
+
+              {/* Date & Quantity Range Section */}
+              <div className="space-y-3">
+                <Label className="text-sm font-medium text-muted-foreground">Date & Quantity Ranges</Label>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <Label htmlFor="quote_issue_date_from">From</Label>
+                    <Input
+                      id="quote_issue_date_from"
+                      name="quote_issue_date_from"
+                      type="date"
+                      placeholder="Start date"
+                      className="text-sm"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="quote_issue_date_to">To</Label>
+                    <Input
+                      id="quote_issue_date_to"
+                      name="quote_issue_date_to"
+                      type="date"
+                      placeholder="End date"
+                      className="text-sm"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="quantity_min">Min Qty</Label>
+                    <Input
+                      id="quantity_min"
+                      name="quantity_min"
+                      type="number"
+                      placeholder="0"
+                      min="0"
+                      className="text-sm"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="quantity_max">Max Qty</Label>
+                    <Input
+                      id="quantity_max"
+                      name="quantity_max"
+                      type="number"
+                      placeholder="No limit"
+                      min="0"
+                      className="text-sm"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">Leave date fields blank for no end limit</p>
               </div>
-              <div className="flex items-center space-x-2">
+
+              {/* Award History Filter */}
+              <div className="flex items-center space-x-2 p-3 bg-muted/30 rounded-lg">
                 <Checkbox
                   id="has_award_history"
                   name="has_award_history"
@@ -481,19 +533,35 @@ export const Scouting = () => {
                     }));
                   }}
                 />
-                <Label htmlFor="has_award_history" className="text-sm">
+                <Label htmlFor="has_award_history" className="text-sm cursor-pointer">
                   Only show contracts with award history
                   {allAwardHistory && (
                     <span className="ml-1 text-xs text-muted-foreground">
-                      ({allAwardHistory.length} available)
+                      ({rfqRecordsWithAwardHistory} available)
                     </span>
                   )}
                 </Label>
               </div>
-              <div className="flex items-end">
-                <Button type="submit" className="w-full">
+
+              {/* Action Buttons */}
+              <div className="flex items-end gap-3">
+                <Button type="submit" className="flex-1 md:flex-none md:w-auto px-8">
                   <Search className="w-4 h-4 mr-2" />
                   Search
+                </Button>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => {
+                    setFilters({});
+                    setSelectedCategories([]);
+                    setSortConfig([{ key: 'quote_issue_date', direction: 'desc', priority: 1 }]);
+                    setSearchTerm('');
+                  }}
+                  className="flex-1 md:flex-none md:w-auto"
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Clear All
                 </Button>
               </div>
             </form>

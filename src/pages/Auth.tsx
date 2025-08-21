@@ -101,7 +101,14 @@ export const Auth = () => {
     <div className="min-h-screen flex items-center justify-center bg-guild-brand-bg p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold text-guild-brand-fg">GUILD</CardTitle>
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <img 
+              src="/CGDC-logo.png" 
+              alt="CGDC Logo" 
+              className="h-10 w-auto"
+            />
+            <CardTitle className="text-2xl font-bold text-guild-brand-fg">GUILD</CardTitle>
+          </div>
           <CardDescription>Defense contracting platform</CardDescription>
         </CardHeader>
         
