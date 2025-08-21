@@ -102,11 +102,11 @@ export const Auth = () => {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex items-center justify-center gap-3 mb-2">
-            <img 
-              src="/CGDC-logo.png" 
-              alt="CGDC Logo" 
-              className="h-10 w-auto"
-            />
+                    <img
+          src="/CG-color.png"
+          alt="CGDC Logo"
+          className="h-10 w-auto"
+        />
             <CardTitle className="text-2xl font-bold text-guild-brand-fg">GUILD</CardTitle>
           </div>
           <CardDescription>Defense contracting platform</CardDescription>

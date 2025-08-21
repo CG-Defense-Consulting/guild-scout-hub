@@ -34,7 +34,7 @@ export function AppSidebar() {
   
   const isActive = (path: string) => currentPath === path;
   const getNavCls = ({ isActive }: { isActive: boolean }) =>
-    isActive ? 'bg-guild-accent-1/20 text-guild-accent-1 font-medium' : 'hover:bg-muted/50';
+    isActive ? 'bg-guild-accent-1/20 text-guild-accent-1 font-medium text-base' : 'hover:bg-muted/50 text-base';
 
   return (
     <Sidebar className={collapsed ? 'w-14' : 'w-60'}>
@@ -42,7 +42,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupLabel className="flex items-center gap-2">
             <Shield className="w-4 h-4" />
-            {!collapsed && <span>Navigation</span>}
+            {!collapsed && <span className="text-base font-medium">Navigation</span>}
           </SidebarGroupLabel>
           
           <SidebarGroupContent>

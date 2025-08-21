@@ -13,16 +13,19 @@ import { useAuth } from '@/hooks/use-auth';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Search, Plus, TrendingUp, Calendar, Package, Tag, Filter, X } from 'lucide-react';
+import { Search, Plus, TrendingUp, Calendar, Package, Tag, Filter, X, ChevronDown, ChevronUp } from 'lucide-react';
 
 export const Scouting = () => {
   const { toast } = useToast();
   const { user } = useAuth();
   const isMobile = useIsMobile();
-  const [filters, setFilters] = useState({});
+  const [filters, setFilters] = useState<Record<string, any>>({});
   const [selectedNsn, setSelectedNsn] = useState<string | null>(null);
   const [showPricingPanel, setShowPricingPanel] = useState(false);
   const [showFilters, setShowFilters] = useState(!isMobile); // Hide filters by default on mobile
+  
+  // Desktop filter collapse state
+  const [desktopFiltersCollapsed, setDesktopFiltersCollapsed] = useState(false);
   
   // Category filter state
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -110,7 +113,7 @@ export const Scouting = () => {
         const category = categories.find(cat => cat.id === catId);
         return category ? category.prefixes : [];
       });
-      newFilters.nsnPrefixes = categoryPrefixes;
+      (newFilters as any).nsnPrefixes = categoryPrefixes;
     }
     
     setFilters(newFilters);
@@ -371,73 +374,87 @@ export const Scouting = () => {
                 <Search className="w-5 h-5" />
                 Filters
               </CardTitle>
-              {isMobile && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowFilters(false)}
-                  className="p-1 h-8 w-8"
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4 md:space-y-6">
-            {/* Category Filters */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <Label className="text-sm font-medium flex items-center gap-2">
-                  <Tag className="w-4 h-4" />
-                  Category Filters
-                </Label>
-                {selectedCategories.length > 0 && (
+              <div className="flex items-center gap-2">
+                {!isMobile && (
                   <Button
-                    type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={clearCategoryFilters}
-                    className="text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => setDesktopFiltersCollapsed(!desktopFiltersCollapsed)}
+                    className="flex items-center gap-2"
                   >
-                    Clear All
+                    {desktopFiltersCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                    {desktopFiltersCollapsed ? 'Expand' : 'Collapse'}
+                  </Button>
+                )}
+                {isMobile && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowFilters(false)}
+                    className="p-1 h-8 w-8"
+                  >
+                    <X className="w-4 h-4" />
                   </Button>
                 )}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                {categories.map((category) => (
-                  <div
-                    key={category.id}
-                    className={`flex items-center space-x-3 p-3 rounded-lg border-2 transition-all cursor-pointer hover:shadow-sm ${
-                      selectedCategories.includes(category.id)
-                        ? 'border-guild-accent-1 bg-guild-accent-1/5'
-                        : 'border-border hover:border-guild-accent-1/30'
-                    }`}
-                    onClick={() => handleCategoryToggle(category.id)}
-                  >
-                    <Checkbox
-                      id={category.id}
-                      checked={selectedCategories.includes(category.id)}
-                      onChange={() => handleCategoryToggle(category.id)}
-                      className="data-[state=checked]:bg-guild-accent-1 data-[state=checked]:border-guild-accent-1"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <Label
-                        htmlFor={category.id}
-                        className="text-sm font-medium cursor-pointer truncate"
-                      >
-                        {category.name}
-                      </Label>
-                      <p className="text-xs text-muted-foreground mt-1 truncate">
-                        {category.description}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
+          </CardHeader>
+          {!desktopFiltersCollapsed && (
+            <CardContent className="space-y-4 md:space-y-6">
+              {/* Category Filters */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <Label className="text-sm font-medium flex items-center gap-2">
+                    <Tag className="w-4 h-4" />
+                    Category Filters
+                  </Label>
+                  {selectedCategories.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearCategoryFilters}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      Clear All
+                    </Button>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {categories.map((category) => (
+                    <div
+                      key={category.id}
+                      className={`flex items-center space-x-3 p-3 rounded-lg border-2 transition-all cursor-pointer hover:shadow-sm ${
+                        selectedCategories.includes(category.id)
+                          ? 'border-guild-accent-1 bg-guild-accent-1/5'
+                          : 'border-border hover:border-guild-accent-1/30'
+                      }`}
+                      onClick={() => handleCategoryToggle(category.id)}
+                    >
+                      <Checkbox
+                        id={category.id}
+                        checked={selectedCategories.includes(category.id)}
+                        onChange={() => handleCategoryToggle(category.id)}
+                        className="data-[state=checked]:bg-guild-accent-1 data-[state=checked]:border-guild-accent-1"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <Label
+                          htmlFor={category.id}
+                          className="text-sm font-medium cursor-pointer truncate"
+                        >
+                          {category.name}
+                        </Label>
+                        <p className="text-xs text-muted-foreground mt-1 truncate">
+                          {category.description}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-            {/* Existing Filters */}
-            <form onSubmit={handleFilterChange} className="space-y-6">
+              {/* Existing Filters */}
+              <form onSubmit={handleFilterChange} className="space-y-6">
               {/* Basic Search Fields */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="md:col-span-1">
@@ -533,14 +550,9 @@ export const Scouting = () => {
                     }));
                   }}
                 />
-                <Label htmlFor="has_award_history" className="text-sm cursor-pointer">
-                  Only show contracts with award history
-                  {allAwardHistory && (
-                    <span className="ml-1 text-xs text-muted-foreground">
-                      ({rfqRecordsWithAwardHistory} available)
-                    </span>
-                  )}
-                </Label>
+                                  <Label htmlFor="has_award_history" className="text-sm cursor-pointer">
+                    Only show contracts with award history
+                  </Label>
               </div>
 
               {/* Action Buttons */}
@@ -566,6 +578,7 @@ export const Scouting = () => {
               </div>
             </form>
           </CardContent>
+            )}
         </Card>
       )}
 
