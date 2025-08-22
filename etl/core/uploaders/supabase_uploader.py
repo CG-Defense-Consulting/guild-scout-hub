@@ -70,6 +70,44 @@ class SupabaseUploader:
             logger.error(f"Failed to initialize Supabase client: {str(e)}")
             raise
     
+    def _find_contract_id(self, solicitation_number: str) -> Optional[str]:
+        """
+        Find the contract ID that matches the solicitation number.
+        
+        Args:
+            solicitation_number: The solicitation number to search for
+            
+        Returns:
+            Contract ID if found, None otherwise
+        """
+        try:
+            # First, find the rfq_index_extract record by solicitation_number
+            # Then check if there's a corresponding universal_contract_queue record
+            result = self.supabase.table('rfq_index_extract').select('id').eq('solicitation_number', solicitation_number).execute()
+            
+            if result.data and len(result.data) > 0:
+                rfq_id = result.data[0]['id']
+                logger.info(f"Found RFQ ID {rfq_id} for solicitation {solicitation_number}")
+                
+                # Now check if there's a contract in the queue with this ID
+                contract_result = self.supabase.table('universal_contract_queue').select('id').eq('id', rfq_id).execute()
+                
+                if contract_result.data and len(contract_result.data) > 0:
+                    contract_id = contract_result.data[0]['id']
+                    logger.info(f"Found contract ID {contract_id} for solicitation {solicitation_number}")
+                    return contract_id
+                else:
+                    logger.warning(f"No contract in queue for RFQ ID {rfq_id}")
+                    # Use the RFQ ID as fallback since it's the same ID that would be used
+                    return rfq_id
+            else:
+                logger.warning(f"No RFQ record found for solicitation {solicitation_number}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error finding contract ID: {str(e)}")
+            return None
+
     def upload_pdf_to_storage(self, pdf_path: str, solicitation_number: str) -> Optional[str]:
         """
         Upload PDF to Supabase storage bucket using the same approach as the UI.
@@ -91,13 +129,21 @@ class SupabaseUploader:
                 logger.error(f"PDF file not found: {pdf_path}")
                 return None
             
+            # Find the contract ID for this solicitation number
+            contract_id = self._find_contract_id(solicitation_number)
+            if not contract_id:
+                logger.warning(f"Using solicitation number as fallback for file naming")
+                contract_id = solicitation_number
+            
             # Create unique filename using the same format as UI
             timestamp = self._get_timestamp().replace(':', '-').replace('.', '-')
             file_extension = Path(pdf_path).suffix
             
-            # Format: rfq-{solicitation_number}-{timestamp}-{original_name}.{extension}
+            # Format: contract-{contractId}-{timestamp}-{encodedOriginalName}.{extension}
             # This matches the UI format: contract-{contractId}-{timestamp}-{encodedOriginalName}.{extension}
-            unique_filename = f"rfq-{solicitation_number}-{timestamp}-{Path(pdf_path).stem}{file_extension}"
+            # Encode the solicitation number as the original filename so the UI displays it properly
+            encoded_solicitation = solicitation_number.replace('(', '_').replace(')', '_')
+            unique_filename = f"contract-{contract_id}-{timestamp}-{encoded_solicitation}{file_extension}"
             
             # Upload to Supabase storage using the same approach as UI
             logger.info(f"Uploading PDF to storage: {unique_filename}")
