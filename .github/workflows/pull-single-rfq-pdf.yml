@@ -162,7 +162,7 @@ jobs:
           print('Chrome test completed successfully!')
           "
           
-      - name: Run RFQ PDF download
+      - name: Download and Upload RFQ PDF
         id: download
         run: |
           cd etl

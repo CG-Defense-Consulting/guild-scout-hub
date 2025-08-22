@@ -48,9 +48,8 @@ curl -X POST \
 
 1. **Setup**: Python 3.8 + Chrome + Dependencies
 2. **Download**: Navigate to DIBBS, handle consent, download PDF
-3. **Process**: Extract text and metadata from PDF
-4. **Upload**: Store PDF in Supabase bucket + metadata in database
-5. **Artifacts**: Upload PDF and logs for inspection
+3. **Upload**: Store PDF in Supabase storage bucket
+4. **Artifacts**: Upload PDF and logs for inspection
 
 ## ⚠️ **Troubleshooting**
 

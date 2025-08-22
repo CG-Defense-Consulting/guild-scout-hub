@@ -121,12 +121,13 @@ class SupabaseUploader:
             logger.error(f"Error uploading PDF to storage: {str(e)}")
             return None
     
-    def upload_rfq_data(self, rfq_data: Dict[str, Any]) -> bool:
+    def upload_rfq_data(self, pdf_path: str, solicitation_number: str) -> bool:
         """
-        Upload RFQ data to Supabase using the same approach as the UI.
+        Upload RFQ PDF to Supabase storage (simplified version).
         
         Args:
-            rfq_data: RFQ data dictionary
+            pdf_path: Path to the PDF file
+            solicitation_number: Solicitation number for naming
             
         Returns:
             True if successful, False otherwise
@@ -136,26 +137,13 @@ class SupabaseUploader:
                 logger.error("Supabase client not initialized")
                 return False
             
-            # Debug: log the incoming data
-            logger.info(f"Uploading RFQ data: {list(rfq_data.keys())}")
-            logger.info(f"PDF path: {rfq_data.get('pdf_path')}")
-            
-            # Extract data
-            solicitation_number = rfq_data.get('solicitation_number')
-            pdf_path = rfq_data.get('pdf_path')
-            
-            if not solicitation_number or not pdf_path:
-                logger.error("Missing required RFQ data")
-                return False
-            
-            # Upload PDF to storage first (same as UI)
-            logger.info(f"About to upload PDF to storage. Path: {pdf_path}, Type: {type(pdf_path)}")
+            # Upload PDF to storage
             storage_path = self.upload_pdf_to_storage(pdf_path, solicitation_number)
             if not storage_path:
                 logger.error("Failed to upload PDF to storage")
                 return False
             
-            # Create signed URL (same as UI)
+            # Create signed URL for access
             signed_url_result = self.supabase.storage.from_('docs').create_signed_url(
                 storage_path, 3600  # 1 hour expiry
             )
@@ -168,14 +156,10 @@ class SupabaseUploader:
             logger.info(f"Storage path: {storage_path}")
             logger.info(f"Signed URL created: {signed_url_result.data.get('signedUrl')}")
             
-            # Note: We're not inserting into a database table like the UI
-            # The UI just stores files in the 'docs' bucket and accesses them via storage API
-            # This matches the existing UI behavior exactly
-            
             return True
             
         except Exception as e:
-            logger.error(f"Error uploading RFQ data: {str(e)}")
+            logger.error(f"Error uploading RFQ PDF: {str(e)}")
             return False
     
     # Note: Database table operations removed to match UI behavior
