@@ -1,6 +1,7 @@
 name: Extract NSN AMSC Code
 
 on:
+  # Manual trigger from GitHub UI
   workflow_dispatch:
     inputs:
       contract_id:
@@ -16,6 +17,10 @@ on:
         required: false
         type: boolean
         default: false
+  
+  # Allow triggering via API/webhook
+  repository_dispatch:
+    types: [extract_nsn_amsc]
 
 jobs:
   extract-amsc:
@@ -85,9 +90,26 @@ jobs:
         run: |
           cd etl
           
+          # Handle both workflow_dispatch and repository_dispatch events
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual trigger from GitHub UI
+            CONTRACT_ID="${{ github.event.inputs.contract_id }}"
+            NSN="${{ github.event.inputs.nsn }}"
+            VERBOSE="${{ github.event.inputs.verbose }}"
+          else
+            # API trigger via repository_dispatch
+            CONTRACT_ID="${{ github.event.client_payload.contract_id }}"
+            NSN="${{ github.event.client_payload.nsn }}"
+            VERBOSE="false"
+          fi
+          
+          echo "Contract ID: $CONTRACT_ID"
+          echo "NSN: $NSN"
+          echo "Verbose: $VERBOSE"
+          
           # Build command with optional verbose flag
-          CMD="python workflows/adhoc/extract_nsn_amsc.py '${{ github.event.inputs.contract_id }}' '${{ github.event.inputs.nsn }}'"
-          if [ "${{ github.event.inputs.verbose }}" = "true" ]; then
+          CMD="python workflows/adhoc/extract_nsn_amsc.py '$CONTRACT_ID' '$NSN'"
+          if [ "$VERBOSE" = "true" ]; then
             CMD="$CMD --verbose"
           fi
           

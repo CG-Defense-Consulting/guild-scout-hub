@@ -170,14 +170,31 @@ jobs:
           # Set environment variables
           export $(cat .env | xargs)
           
-          # Build command arguments
-          CMD_ARGS="${{ github.event.inputs.solicitation_number }}"
-          
-          if [ -n "${{ github.event.inputs.output_dir }}" ]; then
-            CMD_ARGS="$CMD_ARGS --output-dir ${{ github.event.inputs.output_dir }}"
+          # Handle both workflow_dispatch and repository_dispatch events
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual trigger from GitHub UI
+            SOLICITATION_NUMBER="${{ github.event.inputs.solicitation_number }}"
+            OUTPUT_DIR="${{ github.event.inputs.output_dir }}"
+            VERBOSE="${{ github.event.inputs.verbose }}"
+          else
+            # API trigger via repository_dispatch
+            SOLICITATION_NUMBER="${{ github.event.client_payload.solicitation_number }}"
+            OUTPUT_DIR=""
+            VERBOSE="false"
           fi
           
-          if [ "${{ github.event.inputs.verbose }}" = "true" ]; then
+          echo "Solicitation Number: $SOLICITATION_NUMBER"
+          echo "Output Directory: $OUTPUT_DIR"
+          echo "Verbose: $VERBOSE"
+          
+          # Build command arguments
+          CMD_ARGS="$SOLICITATION_NUMBER"
+          
+          if [ -n "$OUTPUT_DIR" ]; then
+            CMD_ARGS="$CMD_ARGS --output-dir $OUTPUT_DIR"
+          fi
+          
+          if [ "$VERBOSE" = "true" ]; then
             CMD_ARGS="$CMD_ARGS --verbose"
           fi
           
@@ -187,9 +204,10 @@ jobs:
           python workflows/adhoc/pull_single_rfq_pdf.py $CMD_ARGS
           
           # Check if PDF was downloaded
-          if [ -f "downloads/${{ github.event.inputs.solicitation_number }}.PDF" ]; then
+          if [ -f "downloads/$SOLICITATION_NUMBER.PDF" ]; then
             echo "PDF downloaded successfully"
-            echo "pdf_path=downloads/${{ github.event.inputs.solicitation_number }}.PDF" >> $GITHUB_OUTPUT
+            echo "pdf_path=downloads/$SOLICITATION_NUMBER.PDF" >> $GITHUB_OUTPUT
+            echo "solicitation_number=$SOLICITATION_NUMBER" >> $GITHUB_OUTPUT
           else
             echo "PDF not found - checking for other PDF files"
             ls -la downloads/ || echo "No downloads directory or files found"
@@ -199,7 +217,7 @@ jobs:
         if: steps.download.outputs.pdf_path
         uses: actions/upload-artifact@v4
         with:
-          name: rfq-pdf-${{ github.event.inputs.solicitation_number }}
+          name: rfq-pdf-${{ steps.download.outputs.solicitation_number }}
           path: etl/downloads/*.PDF
           retention-days: 7
           
