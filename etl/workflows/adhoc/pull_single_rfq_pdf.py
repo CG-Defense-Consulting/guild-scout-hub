@@ -14,7 +14,6 @@ from typing import Optional
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from core.scrapers.dibbs_scraper import DibbsScraper
-from core.processors.pdf_processor import PDFProcessor
 from core.uploaders.supabase_uploader import SupabaseUploader
 from utils.logger import setup_logger
 
@@ -22,7 +21,7 @@ logger = setup_logger(__name__)
 
 def pull_single_rfq_pdf(solicitation_number: str, output_dir: Optional[str] = None) -> bool:
     """
-    Pull a single RFQ PDF for the given solicitation number.
+    Download a single RFQ PDF and upload it to Supabase storage.
     
     Args:
         solicitation_number: The solicitation number to search for
@@ -53,15 +52,10 @@ def pull_single_rfq_pdf(solicitation_number: str, output_dir: Optional[str] = No
             logger.error("Failed to download PDF")
             return False
             
-        # Process the PDF
-        logger.info("Processing PDF...")
-        processor = PDFProcessor()
-        extracted_data = processor.extract_rfq_data(pdf_path)
-        
-        # Upload to Supabase
-        logger.info("Uploading to database...")
+        # Upload PDF directly to Supabase storage
+        logger.info("Uploading PDF to Supabase storage...")
         uploader = SupabaseUploader()
-        success = uploader.upload_rfq_data(extracted_data)
+        success = uploader.upload_rfq_data(pdf_path, solicitation_number)
         
         if success:
             logger.info(f"Successfully processed and uploaded RFQ for {solicitation_number}")
