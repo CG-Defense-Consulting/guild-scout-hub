@@ -245,6 +245,69 @@ class DibbsScraper:
         # TODO: Implement actual detail fetching logic
         return None
     
+    def extract_nsn_amsc(self, nsn: str) -> Optional[str]:
+        """
+        Extract AMSC code from NSN Details page.
+        
+        Args:
+            nsn: The National Stock Number to look up
+            
+        Returns:
+            AMSC code (A, B, C, D, E, F, G, ..., S, Z) or None if failed
+        """
+        try:
+            logger.info(f"Extracting AMSC code for NSN: {nsn}")
+            
+            # Construct the NSN Details URL
+            nsn_url = f"https://www.dibbs.bsm.dla.mil/RFQ/RFQNsn.aspx?value={nsn}&category=nsn"
+            
+            # Handle consent page and navigate to NSN details
+            if not self._handle_consent_page(nsn_url):
+                logger.error(f"Failed to handle consent page for NSN: {nsn}")
+                return None
+            
+            # Wait for page to load and look for AMSC field
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            from selenium.webdriver.common.by import By
+            
+            wait = WebDriverWait(self.driver, 10)
+            
+            # Look for text containing "AMSC:" followed by a letter
+            # The AMSC field is usually displayed as "AMSC: G" or similar
+            amsc_pattern = r"AMSC:\s*([A-Z])"
+            
+            # Get page source and search for AMSC pattern
+            page_source = self.driver.page_source
+            import re
+            
+            match = re.search(amsc_pattern, page_source)
+            if match:
+                amsc_code = match.group(1)
+                logger.info(f"Found AMSC code: {amsc_code}")
+                return amsc_code
+            
+            # Alternative: Look for specific elements that might contain AMSC
+            try:
+                # Look for any element containing "AMSC:"
+                amsc_elements = self.driver.find_elements(By.XPATH, "//*[contains(text(), 'AMSC:')]")
+                for element in amsc_elements:
+                    text = element.text
+                    match = re.search(amsc_pattern, text)
+                    if match:
+                        amsc_code = match.group(1)
+                        logger.info(f"Found AMSC code in element: {amsc_code}")
+                        return amsc_code
+            except Exception as e:
+                logger.warning(f"Alternative AMSC search failed: {str(e)}")
+            
+            logger.warning(f"AMSC code not found for NSN: {nsn}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error extracting AMSC code for NSN {nsn}: {str(e)}")
+            return None
+    
     def cleanup(self):
         """Clean up resources."""
         if self.driver:

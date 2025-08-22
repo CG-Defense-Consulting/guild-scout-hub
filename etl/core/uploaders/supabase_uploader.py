@@ -247,6 +247,40 @@ class SupabaseUploader:
     # Note: Database table operations removed to match UI behavior
     # The UI only uses Supabase storage, not database tables for documents
     
+    def update_contract_amsc(self, contract_id: str, is_g_level: bool) -> bool:
+        """
+        Update the cde_g field in universal_contract_queue table.
+        
+        Args:
+            contract_id: The contract ID to update
+            is_g_level: Whether the AMSC code is G (True) or not (False)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            if not self.supabase:
+                logger.error("Supabase client not initialized")
+                return False
+            
+            logger.info(f"Updating contract {contract_id} with cde_g: {is_g_level}")
+            
+            # Update the contract record
+            result = self.supabase.table('universal_contract_queue').update({
+                'cde_g': is_g_level
+            }).eq('id', contract_id).execute()
+            
+            if result.error:
+                logger.error(f"Error updating contract AMSC: {result.error}")
+                return False
+            
+            logger.info(f"Successfully updated contract {contract_id} with cde_g: {is_g_level}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating contract AMSC: {str(e)}")
+            return False
+    
     def _get_timestamp(self) -> str:
         """Get current timestamp in ISO format."""
         from datetime import datetime
