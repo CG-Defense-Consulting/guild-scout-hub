@@ -11,9 +11,10 @@ export const GITHUB_CONFIG = {
   WORKFLOW_EVENTS: {
     PULL_SINGLE_RFQ_PDF: 'pull_single_rfq_pdf',
     PULL_DAY_RFQ_PDFS: 'pull_day_rfq_pdfs',
-    PULL_DAY_RFQ_INDEX: 'pull_day_rfq_index_extract',
+    PULL_DAY_RFQ_INDEX: 'pull_day_rq_index_extract',
     PULL_SINGLE_AWARD_HISTORY: 'pull_single_award_history',
-    PULL_DAY_AWARD_HISTORY: 'pull_day_award_history'
+    PULL_DAY_AWARD_HISTORY: 'pull_day_award_history',
+    EXTRACT_NSN_AMSC: 'extract_nsn_amsc'
   }
 };
 

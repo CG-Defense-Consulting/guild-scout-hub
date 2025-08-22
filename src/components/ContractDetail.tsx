@@ -20,14 +20,12 @@ import { GITHUB_CONFIG, getGitHubToken } from '@/config/github';
 import { 
   FileText, 
   Upload, 
-  Zap, 
   Send, 
   Clock, 
   User,
   Calendar,
   CheckCircle2,
-  AlertCircle,
-  PlayCircle
+  Database
 } from 'lucide-react';
 
 interface ContractDetailProps {
@@ -54,6 +52,7 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
   const [isUploading, setIsUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isPullingRfq, setIsPullingRfq] = useState(false);
+  const [isExtractingAmsc, setIsExtractingAmsc] = useState(false);
   
   // Calculate total destination quantity
   const totalDestinationQuantity = destinations.reduce((total, dest) => {
@@ -105,7 +104,7 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
           files.map(async (file) => {
             const { data: urlData, error: urlError } = await supabase.storage
               .from('docs')
-              .createSignedUrl(file.name, 3600); // 1 hour expiry
+              .createSignedUrl(file.name, 86400); // 24 hour expiry
 
             if (urlError) {
               console.error('Error creating signed URL for file:', file.name, urlError);
@@ -114,6 +113,12 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
 
             // Extract the original filename from the encoded storage path
             const originalFileName = extractOriginalFileName(file.name, contract.id);
+            console.log('📄 Document processing:', { 
+              fileName: file.name, 
+              contractId: contract.id, 
+              extractedName: originalFileName,
+              signedUrl: urlData.signedUrl 
+            });
             
             return {
               originalFileName: originalFileName,
@@ -307,13 +312,6 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
 
   if (!contract) return null;
 
-  const handleStubAction = (actionName: string) => {
-    toast({
-      title: 'Action Triggered',
-      description: `${actionName} functionality will be implemented later.`,
-    });
-  };
-
   const handlePullRfqPdf = async () => {
     if (!contract?.solicitation_number) {
       toast({
@@ -387,24 +385,32 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
       
       try {
         // Check if RFQ PDF has been uploaded to Supabase
+        // Look for files with the pattern: contract-{contractId}-{timestamp}-{solicitation_number}.PDF
         const { data: files, error } = await supabase.storage
           .from('docs')
           .list('', {
-            search: `rfq-${contract.solicitation_number}-`
+            search: `contract-${contract.id}-`
           });
 
         if (error) {
           console.error('Error checking for RFQ PDF:', error);
         } else if (files && files.length > 0) {
-          // RFQ PDF found! Stop polling and refresh documents
-          clearInterval(pollInterval);
-          toast({
-            title: 'RFQ PDF Ready!',
-            description: 'The RFQ PDF has been downloaded and is now available in the Documents section.',
-          });
+          // Check if any file contains the solicitation number
+          const rfqFile = files.find(file => 
+            file.name.includes(contract.solicitation_number) && file.name.endsWith('.PDF')
+          );
           
-          // Refresh the uploaded documents list
-          loadExistingDocuments();
+          if (rfqFile) {
+            // RFQ PDF found! Stop polling and refresh documents
+            clearInterval(pollInterval);
+            toast({
+              title: 'RFQ PDF Ready!',
+              description: 'The RFQ PDF has been downloaded and is now available in the Documents section.',
+            });
+            
+            // Refresh the uploaded documents list
+            loadExistingDocuments();
+          }
         }
       } catch (error) {
         console.error('Error during polling:', error);
@@ -418,6 +424,67 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
         });
       }
     }, 10000); // 10 seconds
+  };
+
+  const handleExtractAmsc = async () => {
+    if (!contract?.id || !contract?.national_stock_number) {
+      toast({
+        title: 'Error',
+        description: 'No contract ID or NSN available for AMSC extraction.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsExtractingAmsc(true);
+    
+    try {
+      // Check if GitHub token is available
+      const githubToken = getGitHubToken();
+      if (!githubToken) {
+        toast({
+          title: 'GitHub Token Required',
+          description: 'Please configure your GitHub token to trigger workflows.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Trigger GitHub Actions workflow via API
+      const response = await fetch(`${GITHUB_CONFIG.API_BASE}/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/dispatches`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `token ${githubToken}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          event_type: GITHUB_CONFIG.WORKFLOW_EVENTS.EXTRACT_NSN_AMSC,
+          client_payload: {
+            contract_id: contract.id,
+            nsn: contract.national_stock_number
+          }
+        })
+      });
+
+      if (response.ok) {
+        toast({
+          title: 'Workflow Triggered',
+          description: `AMSC extraction workflow has been started for NSN ${contract.national_stock_number}. Check the Actions tab for progress.`,
+        });
+      } else {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+    } catch (error) {
+      console.error('Error triggering AMSC workflow:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to trigger AMSC extraction workflow. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsExtractingAmsc(false);
+    }
   };
 
   // Parse the stage timeline from the contract data
@@ -758,48 +825,12 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Zap className="w-5 h-5" />
+                  <Database className="w-5 h-5" />
                   Automation Actions
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid gap-3">
-                  <Button 
-                    variant="outline" 
-                    className="justify-start"
-                    onClick={() => handleStubAction('Market Intelligence Scraping')}
-                  >
-                    <PlayCircle className="w-4 h-4 mr-2" />
-                    Run Market Intelligence Scraping
-                  </Button>
-                  
-                  <Button 
-                    variant="outline" 
-                    className="justify-start"
-                    onClick={() => handleStubAction('Compliance Check')}
-                  >
-                    <CheckCircle2 className="w-4 h-4 mr-2" />
-                    Perform Compliance Check
-                  </Button>
-                  
-                  <Button 
-                    variant="outline" 
-                    className="justify-start"
-                    onClick={() => handleStubAction('Auto-Bid Generation')}
-                  >
-                    <Zap className="w-4 h-4 mr-2" />
-                    Generate Auto-Bid Proposal
-                  </Button>
-                  
-                  <Button 
-                    variant="outline" 
-                    className="justify-start"
-                    onClick={() => handleStubAction('Risk Assessment')}
-                  >
-                    <AlertCircle className="w-4 h-4 mr-2" />
-                    Run Risk Assessment
-                  </Button>
-                  
                   <Button 
                     variant="outline" 
                     className="justify-start"
@@ -809,13 +840,22 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                     <FileText className="w-4 h-4 mr-2" />
                     {isPullingRfq ? 'Pulling RFQ PDF...' : 'Pull this RFQ PDF'}
                   </Button>
+                  
+                  <Button 
+                    variant="outline" 
+                    className="justify-start"
+                    onClick={() => handleExtractAmsc()}
+                    disabled={isExtractingAmsc}
+                  >
+                    <Database className="w-4 h-4 mr-2" />
+                    {isExtractingAmsc ? 'Extracting AMSC...' : 'Extract NSN AMSC Code'}
+                  </Button>
                 </div>
 
                 <div className="mt-6 p-4 bg-muted rounded-lg">
                   <h4 className="font-medium mb-2">Automation Status</h4>
                   <p className="text-sm text-muted-foreground">
-                    All automation features are currently in stub mode. 
-                    Real implementations will be added in future iterations.
+                    RFQ PDF download and AMSC code extraction workflows are now fully implemented and integrated with GitHub Actions.
                   </p>
                 </div>
               </CardContent>
@@ -944,7 +984,12 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                 </div>
 
                 <Button 
-                  onClick={() => handleStubAction('Partner Assignment')}
+                  onClick={() => {
+                    toast({
+                      title: 'Partner Assignment',
+                      description: 'Partner assignment functionality will be implemented in a future iteration.',
+                    });
+                  }}
                   className="w-full"
                 >
                   <Send className="w-4 h-4 mr-2" />
