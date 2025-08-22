@@ -151,32 +151,31 @@ class SupabaseUploader:
             logger.info(f"PDF path for upload: {pdf_path}")
             logger.info(f"PDF path type: {type(pdf_path)}")
             
-            # Read file content and upload as bytes (more reliable than file object)
-            with open(pdf_path, 'rb') as file:
-                file_content = file.read()
-                logger.info(f"File read successfully, content type: {type(file_content)}, size: {len(file_content)} bytes")
+            # Upload file directly to preserve content type and file extension
+            try:
+                logger.info("Getting storage bucket...")
+                bucket = self.supabase.storage.from_('docs')
+                logger.info("✓ Storage bucket obtained")
                 
-                # Try to upload step by step to isolate the error
-                try:
-                    logger.info("Getting storage bucket...")
-                    bucket = self.supabase.storage.from_('docs')
-                    logger.info("✓ Storage bucket obtained")
-                    
-                    logger.info("Calling upload method...")
-                    result = bucket.upload(
-                        unique_filename,
-                        file_content  # Pass bytes content
-                    )
-                    logger.info("✓ Upload method called successfully")
-                    logger.info(f"Upload result type: {type(result)}")
-                    logger.info(f"Upload result: {result}")
-                    
-                except Exception as upload_error:
-                    logger.error(f"Upload error details: {str(upload_error)}")
-                    logger.error(f"Upload error type: {type(upload_error)}")
-                    import traceback
-                    logger.error(f"Upload error traceback: {traceback.format_exc()}")
-                    raise upload_error
+                logger.info("Calling upload method...")
+                # Upload the file directly to preserve content type
+                result = bucket.upload(
+                    unique_filename,
+                    pdf_path,  # Pass file path directly
+                    options={
+                        'content-type': 'application/pdf'
+                    }
+                )
+                logger.info("✓ Upload method called successfully")
+                logger.info(f"Upload result type: {type(result)}")
+                logger.info(f"Upload result: {result}")
+                
+            except Exception as upload_error:
+                logger.error(f"Upload error details: {str(upload_error)}")
+                logger.error(f"Upload error type: {type(upload_error)}")
+                import traceback
+                logger.error(f"Upload error traceback: {traceback.format_exc()}")
+                raise upload_error
             
             # Check if upload was successful - handle different response formats
             if hasattr(result, 'error') and result.error:
