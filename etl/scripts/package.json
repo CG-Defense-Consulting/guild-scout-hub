@@ -1,0 +1,28 @@
+{
+  "name": "dibbs-etl-scripts",
+  "version": "1.0.0",
+  "description": "Scripts for triggering DIBBS ETL workflows",
+  "main": "trigger_workflow.js",
+  "scripts": {
+    "trigger": "node trigger_workflow.js",
+    "help": "node trigger_workflow.js --help"
+  },
+  "keywords": [
+    "dibbs",
+    "etl",
+    "github-actions",
+    "workflow",
+    "automation"
+  ],
+  "author": "Guild Scout Hub Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kayacelebi/guild-scout-hub.git"
+  }
+}
