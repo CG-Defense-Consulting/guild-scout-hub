@@ -1,0 +1,105 @@
+name: Extract NSN AMSC Code
+
+on:
+  workflow_dispatch:
+    inputs:
+      contract_id:
+        description: 'Contract ID from universal_contract_queue'
+        required: true
+        type: string
+      nsn:
+        description: 'National Stock Number to look up'
+        required: true
+        type: string
+      verbose:
+        description: 'Enable verbose logging'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  extract-amsc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+          
+      - name: Set up Chrome
+        uses: browser-actions/setup-chrome@v1
+        
+      - name: Install ChromeDriver
+        run: |
+          # Install ChromeDriver
+          CHROME_VERSION=$(google-chrome --version | cut -d ' ' -f 3 | cut -d '.' -f 1)
+          CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_VERSION")
+          wget -N "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
+          unzip -o chromedriver_linux64.zip
+          chmod +x chromedriver
+          sudo mv chromedriver /usr/local/bin/
+          
+          # Verify ChromeDriver installation
+          chromedriver --version
+          
+      - name: Test Chrome setup
+        run: |
+          # Test Chrome and ChromeDriver
+          google-chrome --version
+          chromedriver --version
+          
+      - name: Set up environment variables
+        run: |
+          # Create .env file from GitHub secrets
+          cat > etl/.env << EOF
+          VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DIBBS_BASE_URL=https://dibbs2.bsm.dla.mil
+          DIBBS_DOWNLOAD_DIR=./downloads
+          SELENIUM_HEADLESS=true
+          SELENIUM_TIMEOUT=30
+          LOG_LEVEL=INFO
+          LOG_FILE=./logs/etl.log
+          SUPABASE_BUCKET_NAME=docs
+          EOF
+          
+      - name: Install Python dependencies
+        run: |
+          cd etl
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+      - name: Create necessary directories
+        run: |
+          cd etl
+          mkdir -p downloads logs
+          
+      - name: Extract NSN AMSC Code
+        id: extract
+        run: |
+          cd etl
+          
+          # Build command with optional verbose flag
+          CMD="python workflows/adhoc/extract_nsn_amsc.py '${{ github.event.inputs.contract_id }}' '${{ github.event.inputs.nsn }}'"
+          if [ "${{ github.event.inputs.verbose }}" = "true" ]; then
+            CMD="$CMD --verbose"
+          fi
+          
+          echo "Running: $CMD"
+          eval $CMD
+          
+      - name: Upload logs
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: amsc-extraction-logs
+          path: |
+            etl/logs/
+            etl/downloads/
+          retention-days: 7

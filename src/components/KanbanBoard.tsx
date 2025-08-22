@@ -5,6 +5,8 @@ import { useUpdateQueueStatus, useDeleteFromQueue } from '@/hooks/use-database';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { Calendar, Package, Eye, ArrowRight, ArrowLeft, Trash2, ExternalLink, FileText, Database } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 
 interface KanbanBoardProps {
   columns: string[];
@@ -13,6 +15,81 @@ interface KanbanBoardProps {
   onContractClick: (contract: any) => void;
   loading: boolean;
 }
+
+// RFQ PDF Button Component for Kanban Board
+const RfqPdfButton = ({ solicitationNumber, contractId }: { solicitationNumber: string; contractId: string }) => {
+  const [hasPdf, setHasPdf] = useState(false);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+
+  // Check if RFQ PDF exists in Supabase
+  useEffect(() => {
+    const checkForRfqPdf = async () => {
+      try {
+        // Search for files with contract-{contractId}- prefix
+        const { data: files, error } = await supabase.storage
+          .from('docs')
+          .list('', {
+            search: `contract-${contractId}-`
+          });
+
+        if (error) {
+          console.error('Error checking for RFQ PDF:', error);
+          return;
+        }
+
+        if (files && files.length > 0) {
+          // Look for files that contain the solicitation number
+          const rfqFile = files.find(file => 
+            file.name.includes(solicitationNumber) && file.name.endsWith('.PDF')
+          );
+          
+          if (rfqFile) {
+            // Create a signed URL for the PDF
+            const { data: urlData, error: urlError } = await supabase.storage
+              .from('docs')
+              .createSignedUrl(rfqFile.name, 3600); // 1 hour expiry
+
+            if (urlError) {
+              console.error('Error creating signed URL:', urlError);
+              return;
+            }
+
+            setHasPdf(true);
+            setPdfUrl(urlData.signedUrl);
+          }
+        }
+      } catch (error) {
+        console.error('Error checking for RFQ PDF:', error);
+      }
+    };
+
+    checkForRfqPdf();
+  }, [solicitationNumber, contractId]);
+
+  const handleClick = async () => {
+    if (hasPdf && pdfUrl) {
+      // Open the PDF from Supabase
+      window.open(pdfUrl, '_blank');
+    } else {
+      // Fallback to direct DIBBS link
+      const lastChar = solicitationNumber.slice(-1);
+      const dibbsUrl = `https://dibbs2.bsm.dla.mil/Downloads/RFQ/${lastChar}/${solicitationNumber}.PDF`;
+      window.open(dibbsUrl, '_blank');
+    }
+  };
+
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className="h-6 w-6 p-0 flex-shrink-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+      onClick={handleClick}
+      title={hasPdf ? "View RFQ PDF from Supabase" : "View RFQ PDF from DIBBS"}
+    >
+      <FileText className="w-3 h-3" />
+    </Button>
+  );
+};
 
 export const KanbanBoard = ({ 
   columns, 
@@ -140,6 +217,25 @@ export const KanbanBoard = ({
                 <div className="text-xs text-muted-foreground font-mono">
                   {contract.national_stock_number || 'No NSN'}
                 </div>
+                
+                {/* AMSC Status Indicator */}
+                {contract.cde_g === true && (
+                  <div className="flex items-center gap-1">
+                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                    <span className="text-xs text-muted-foreground">
+                      AMSC: G-Level
+                    </span>
+                  </div>
+                )}
+                
+                {contract.cde_g === false && (
+                  <div className="flex items-center gap-1">
+                    <div className="w-2 h-2 rounded-full bg-red-500" />
+                    <span className="text-xs text-muted-foreground">
+                      AMSC: Non-G
+                    </span>
+                  </div>
+                )}
               </div>
               
               <p className="text-sm text-foreground font-medium line-clamp-2">
@@ -164,19 +260,10 @@ export const KanbanBoard = ({
               <div className="flex gap-1">
                 {/* RFQ PDF Link */}
                 {contract.solicitation_number && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 p-0 flex-shrink-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                    onClick={() => {
-                      const lastChar = contract.solicitation_number.slice(-1);
-                      const url = `https://dibbs2.bsm.dla.mil/Downloads/RFQ/${lastChar}/${contract.solicitation_number}.PDF`;
-                      window.open(url, '_blank');
-                    }}
-                    title="View RFQ PDF"
-                  >
-                    <FileText className="w-3 h-3" />
-                  </Button>
+                  <RfqPdfButton 
+                    solicitationNumber={contract.solicitation_number}
+                    contractId={contract.id}
+                  />
                 )}
                 
                 {/* Tech Doc Link */}

@@ -672,19 +672,29 @@ export const useDeleteFromQueue = () => {
 // Utility function to extract original filename from storage path
 export const extractOriginalFileName = (storagePath: string, contractId: string): string => {
   try {
+    console.log('🔍 extractOriginalFileName called with:', { storagePath, contractId });
+    
     // Expected format: contract-{contractId}-{timestamp}-{encodedOriginalName}.{extension}
     const prefix = `contract-${contractId}-`;
     if (!storagePath.startsWith(prefix)) {
+      console.log('❌ Storage path does not start with expected prefix:', prefix);
       return 'Document';
     }
     
     // Remove the prefix
     const remaining = storagePath.substring(prefix.length);
+    console.log('📝 Remaining after prefix removal:', remaining);
     
     // Find the last dash before the encoded name (after timestamp)
-    // Timestamp format: YYYY-MM-DDTHH-MM-SS-sssZ
-    const timestampRegex = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-/;
+    // Support multiple timestamp formats:
+    // 1. ETL format: YYYY-MM-DDTHH-MM-SS-sss (no Z suffix)
+    // 2. UI format: YYYY-MM-DDTHH-MM-SS-sssZ (with Z suffix)
+    // 3. ETL format with dashes: YYYY-MM-DDTHH-MM-SS-sss (colons replaced with dashes)
+    
+    // More flexible regex to handle various timestamp formats
+    const timestampRegex = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3,6}(Z?)-/;
     const match = remaining.match(timestampRegex);
+    console.log('⏰ Timestamp regex match:', match);
     
     if (match) {
       // Extract everything after the timestamp and before the file extension
@@ -692,14 +702,35 @@ export const extractOriginalFileName = (storagePath: string, contractId: string)
       const lastDotIndex = afterTimestamp.lastIndexOf('.');
       const encodedName = lastDotIndex > 0 ? afterTimestamp.substring(0, lastDotIndex) : afterTimestamp;
       
-      // Decode the original filename
-      const decodedName = decodeURIComponent(encodedName.replace(/_/g, '()'));
-      return decodedName || 'Document';
+      console.log('🔤 Encoded name extracted:', encodedName);
+      
+      // For ETL workflow files, the encodedName is actually the solicitation number
+      // For UI uploaded files, it's an encoded filename that needs decoding
+      if (encodedName && encodedName.length > 0) {
+        // Check if this looks like a solicitation number (contains letters and numbers)
+        if (/[A-Z]/.test(encodedName) && /[0-9]/.test(encodedName)) {
+          // This is likely a solicitation number from ETL workflow
+          console.log('✅ Returning solicitation number:', encodedName);
+          return encodedName;
+        } else {
+          // This is likely an encoded filename from UI upload, try to decode it
+          try {
+            const decodedName = decodeURIComponent(encodedName.replace(/_/g, '()'));
+            console.log('✅ Returning decoded filename:', decodedName);
+            return decodedName || 'Document';
+          } catch {
+            // If decoding fails, return the encoded name as-is
+            console.log('⚠️ Decoding failed, returning encoded name as-is:', encodedName);
+            return encodedName;
+          }
+        }
+      }
     }
     
+    console.log('❌ No valid timestamp pattern found, returning Document');
     return 'Document';
   } catch (error) {
-    console.error('Error extracting filename:', error);
+    console.error('❌ Error in extractOriginalFileName:', error);
     return 'Document';
   }
 };

@@ -27,20 +27,57 @@ const RfqPdfButton = ({ solicitationNumber, nsn }: { solicitationNumber: string;
   useEffect(() => {
     const checkForRfqPdf = async () => {
       try {
-        const { data: files, error } = await supabase.storage
+        // First check for the new contract-{contractId}- format
+        // We need to find the contract ID by searching for files that contain the solicitation number
+        const { data: allFiles, error: listError } = await supabase.storage
+          .from('docs')
+          .list('');
+
+        if (listError) {
+          console.error('Error listing files:', listError);
+          return;
+        }
+
+        if (allFiles && allFiles.length > 0) {
+          // Look for files that contain the solicitation number and use the contract- prefix
+          const rfqFile = allFiles.find(file => 
+            file.name.startsWith('contract-') && 
+            file.name.includes(solicitationNumber) && 
+            file.name.endsWith('.PDF')
+          );
+          
+          if (rfqFile) {
+            // Create a signed URL for the PDF
+            const { data: urlData, error: urlError } = await supabase.storage
+              .from('docs')
+              .createSignedUrl(rfqFile.name, 3600); // 1 hour expiry
+
+            if (urlError) {
+              console.error('Error creating signed URL:', urlError);
+              return;
+            }
+
+            setHasPdf(true);
+            setPdfUrl(urlData.signedUrl);
+            return;
+          }
+        }
+
+        // Fallback: check for old rfq-{solicitationNumber}- format
+        const { data: oldFiles, error: oldError } = await supabase.storage
           .from('docs')
           .list('', {
             search: `rfq-${solicitationNumber}-`
           });
 
-        if (error) {
-          console.error('Error checking for RFQ PDF:', error);
+        if (oldError) {
+          console.error('Error checking for old RFQ format:', oldError);
           return;
         }
 
-        if (files && files.length > 0) {
+        if (oldFiles && oldFiles.length > 0) {
           // Get the first RFQ PDF file
-          const rfqFile = files[0];
+          const rfqFile = oldFiles[0];
           
           // Create a signed URL for the PDF
           const { data: urlData, error: urlError } = await supabase.storage
@@ -140,32 +177,39 @@ const RfqPdfButton = ({ solicitationNumber, nsn }: { solicitationNumber: string;
       attempts++;
       
       try {
+        // Look for files with the new contract- prefix pattern
         const { data: files, error } = await supabase.storage
           .from('docs')
           .list('', {
-            search: `rfq-${solicitationNumber}-`
+            search: `contract-`
           });
 
         if (error) {
           console.error('Error checking for RFQ PDF:', error);
         } else if (files && files.length > 0) {
-          // RFQ PDF found! Stop polling
-          clearInterval(pollInterval);
+          // Check if any file contains the solicitation number
+          const rfqFile = files.find(file => 
+            file.name.includes(solicitationNumber) && file.name.endsWith('.PDF')
+          );
           
-          // Get the signed URL
-          const rfqFile = files[0];
-          const { data: urlData, error: urlError } = await supabase.storage
-            .from('docs')
-            .createSignedUrl(rfqFile.name, 3600);
-
-          if (!urlError && urlData) {
-            setHasPdf(true);
-            setPdfUrl(urlData.signedUrl);
+          if (rfqFile) {
+            // RFQ PDF found! Stop polling
+            clearInterval(pollInterval);
             
-            toast({
-              title: 'RFQ PDF Ready!',
-              description: 'The RFQ PDF has been downloaded and is now available.',
-            });
+            // Get the signed URL
+            const { data: urlData, error: urlError } = await supabase.storage
+              .from('docs')
+              .createSignedUrl(rfqFile.name, 3600);
+
+            if (!urlError && urlData) {
+              setHasPdf(true);
+              setPdfUrl(urlData.signedUrl);
+              
+              toast({
+                title: 'RFQ PDF Ready!',
+                description: 'The RFQ PDF has been downloaded and is now available.',
+              });
+            }
           }
         }
       } catch (error) {
