@@ -58,10 +58,28 @@ def pull_single_rfq_pdf(solicitation_number: str, output_dir: Optional[str] = No
         processor = PDFProcessor()
         extracted_data = processor.extract_rfq_data(pdf_path)
         
+        if not extracted_data:
+            logger.error("Failed to extract data from PDF")
+            return False
+        
+        # Prepare data for upload
+        upload_data = {
+            'solicitation_number': extracted_data.get('solicitation_number', solicitation_number),
+            'title': extracted_data.get('title', ''),
+            'agency': extracted_data.get('agency', ''),
+            'date_posted': extracted_data.get('date_posted', ''),
+            'due_date': extracted_data.get('due_date', ''),
+            'contact_info': extracted_data.get('contact_info', ''),
+            'description': extracted_data.get('description', ''),
+            'pdf_path': pdf_path,  # This is the actual file path
+            'raw_text': extracted_data.get('raw_text', ''),
+            'file_size': extracted_data.get('file_size', 0)
+        }
+        
         # Upload to Supabase
         logger.info("Uploading to database...")
         uploader = SupabaseUploader()
-        success = uploader.upload_rfq_data(extracted_data)
+        success = uploader.upload_rfq_data(upload_data)
         
         if success:
             logger.info(f"Successfully processed and uploaded RFQ for {solicitation_number}")

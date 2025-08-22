@@ -74,6 +74,19 @@ class SupabaseUploader:
             
             # Upload to Supabase storage
             logger.info(f"Uploading PDF to storage: {unique_filename}")
+            
+            # Ensure file_content is bytes
+            if not isinstance(file_content, bytes):
+                logger.error(f"File content is not bytes, got: {type(file_content)}")
+                if isinstance(file_content, str):
+                    file_content = file_content.encode('utf-8')
+                elif isinstance(file_content, bool):
+                    logger.error("File content is boolean, this should not happen")
+                    return None
+                else:
+                    logger.error(f"Cannot convert {type(file_content)} to bytes")
+                    return None
+            
             result = self.supabase.storage.from_('docs').upload(
                 unique_filename,
                 file_content,
@@ -109,6 +122,10 @@ class SupabaseUploader:
                 logger.error("Supabase client not initialized")
                 return False
             
+            # Debug: log the incoming data
+            logger.info(f"Uploading RFQ data: {list(rfq_data.keys())}")
+            logger.info(f"PDF path: {rfq_data.get('pdf_path')}")
+            
             # Extract data
             solicitation_number = rfq_data.get('solicitation_number')
             pdf_path = rfq_data.get('pdf_path')
@@ -136,8 +153,15 @@ class SupabaseUploader:
             db_data = {
                 'solicitation_number': solicitation_number,
                 'title': rfq_data.get('title', ''),
+                'agency': rfq_data.get('agency', ''),
+                'date_posted': rfq_data.get('date_posted', ''),
+                'due_date': rfq_data.get('due_date', ''),
+                'contact_info': rfq_data.get('contact_info', ''),
+                'description': rfq_data.get('description', ''),
                 'pdf_path': storage_path,
                 'public_url': signed_url_result.data.get('signedUrl'),
+                'raw_text': rfq_data.get('raw_text', ''),
+                'file_size': rfq_data.get('file_size', 0),
                 'uploaded_at': self._get_timestamp(),
                 'status': 'uploaded'
             }
