@@ -352,7 +352,21 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
         })
       });
 
+      console.log('📡 RFQ Workflow Response status:', response.status, response.statusText);
+      
       if (response.ok) {
+        // GitHub API returns 204 No Content for successful repository_dispatch events
+        if (response.status === 204) {
+          console.log('✅ RFQ Workflow triggered successfully (204 No Content)');
+        } else {
+          try {
+            const responseData = await response.json();
+            console.log('✅ RFQ Workflow triggered successfully:', responseData);
+          } catch (jsonError) {
+            console.log('✅ RFQ Workflow triggered successfully (non-JSON response)');
+          }
+        }
+        
         toast({
           title: 'Workflow Triggered',
           description: `RFQ PDF download workflow has been started for ${contract.solicitation_number}. Check the Actions tab for progress.`,
@@ -361,7 +375,19 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
         // Start polling for the PDF to appear in Supabase
         startPollingForRfqPdf();
       } else {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        let errorText = '';
+        try {
+          errorText = await response.text();
+        } catch (textError) {
+          errorText = 'Unable to read error response';
+        }
+        
+        console.error('❌ RFQ Workflow trigger failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorText: errorText
+        });
+        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
       }
     } catch (error) {
       console.error('Error triggering workflow:', error);
@@ -451,6 +477,20 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
       }
 
       // Trigger GitHub Actions workflow via API
+      const requestBody = {
+        event_type: GITHUB_CONFIG.WORKFLOW_EVENTS.EXTRACT_NSN_AMSC,
+        client_payload: {
+          contract_id: contract.id,
+          nsn: contract.national_stock_number
+        }
+      };
+      
+      console.log('🔍 Triggering AMSC workflow with:', {
+        url: `${GITHUB_CONFIG.API_BASE}/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/dispatches`,
+        event_type: GITHUB_CONFIG.WORKFLOW_EVENTS.EXTRACT_NSN_AMSC,
+        client_payload: requestBody.client_payload
+      });
+      
       const response = await fetch(`${GITHUB_CONFIG.API_BASE}/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/dispatches`, {
         method: 'POST',
         headers: {
@@ -458,22 +498,42 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
           'Accept': 'application/vnd.github.v3+json',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          event_type: GITHUB_CONFIG.WORKFLOW_EVENTS.EXTRACT_NSN_AMSC,
-          client_payload: {
-            contract_id: contract.id,
-            nsn: contract.national_stock_number
-          }
-        })
+        body: JSON.stringify(requestBody)
       });
 
+      console.log('📡 Response status:', response.status, response.statusText);
+      
       if (response.ok) {
+        // GitHub API returns 204 No Content for successful repository_dispatch events
+        if (response.status === 204) {
+          console.log('✅ Workflow triggered successfully (204 No Content)');
+        } else {
+          try {
+            const responseData = await response.json();
+            console.log('✅ Workflow triggered successfully:', responseData);
+          } catch (jsonError) {
+            console.log('✅ Workflow triggered successfully (non-JSON response)');
+          }
+        }
+        
         toast({
           title: 'Workflow Triggered',
           description: `AMSC extraction workflow has been started for NSN ${contract.national_stock_number}. Check the Actions tab for progress.`,
         });
       } else {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        let errorText = '';
+        try {
+          errorText = await response.text();
+        } catch (textError) {
+          errorText = 'Unable to read error response';
+        }
+        
+        console.error('❌ Workflow trigger failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorText: errorText
+        });
+        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
       }
     } catch (error) {
       console.error('Error triggering AMSC workflow:', error);

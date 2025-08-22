@@ -30,6 +30,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PROJECT_ID: ${{ vars.VITE_SUPABASE_PROJECT_ID }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_GITHUB_TOKEN: ${{ secrets.GITHUB_PAT }}
       - name: SPA fallback + CNAME
         run: |
           cp dist/index.html dist/404.html
