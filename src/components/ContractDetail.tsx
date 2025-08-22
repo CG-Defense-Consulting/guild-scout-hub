@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useUpdateDestinations, useUpdateMilitaryStandards, useUploadDocument, extractOriginalFileName, StageTimelineEntry } from '@/hooks/use-database';
 import { supabase } from '@/integrations/supabase/client';
+import { GITHUB_CONFIG, getGitHubToken } from '@/config/github';
 import { 
   FileText, 
   Upload, 
@@ -52,6 +53,7 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
   }>>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isPullingRfq, setIsPullingRfq] = useState(false);
   
   // Calculate total destination quantity
   const totalDestinationQuantity = destinations.reduce((total, dest) => {
@@ -77,66 +79,67 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
     }
   }, [contract]);
 
-  // Load existing documents when contract changes
-  useEffect(() => {
-    const loadExistingDocuments = async () => {
-      if (!contract?.id) {
-        setUploadedDocuments([]);
+  // Load existing documents function
+  const loadExistingDocuments = useCallback(async () => {
+    if (!contract?.id) {
+      setUploadedDocuments([]);
+      return;
+    }
+
+    try {
+      // List files in the docs bucket that match this contract
+      const { data: files, error } = await supabase.storage
+        .from('docs')
+        .list('', {
+          search: `contract-${contract.id}-`
+        });
+
+      if (error) {
+        console.error('Error loading documents:', error);
         return;
       }
 
-      try {
-        // List files in the docs bucket that match this contract
-        const { data: files, error } = await supabase.storage
-          .from('docs')
-          .list('', {
-            search: `contract-${contract.id}-`
-          });
+      if (files && files.length > 0) {
+        // Get signed URLs for each file and extract original filenames
+        const documents = await Promise.all(
+          files.map(async (file) => {
+            const { data: urlData, error: urlError } = await supabase.storage
+              .from('docs')
+              .createSignedUrl(file.name, 3600); // 1 hour expiry
 
-        if (error) {
-          console.error('Error loading documents:', error);
-          return;
-        }
+            if (urlError) {
+              console.error('Error creating signed URL for file:', file.name, urlError);
+              return null;
+            }
 
-        if (files && files.length > 0) {
-          // Get signed URLs for each file and extract original filenames
-          const documents = await Promise.all(
-            files.map(async (file) => {
-              const { data: urlData, error: urlError } = await supabase.storage
-                .from('docs')
-                .createSignedUrl(file.name, 3600); // 1 hour expiry
+            // Extract the original filename from the encoded storage path
+            const originalFileName = extractOriginalFileName(file.name, contract.id);
+            
+            return {
+              originalFileName: originalFileName,
+              fileType: 'application/pdf',
+              storagePath: file.name,
+              publicUrl: urlData.signedUrl,
+              uploadedAt: file.updated_at || new Date().toISOString(),
+              contractId: contract.id
+            };
+          })
+        );
 
-              if (urlError) {
-                console.error('Error creating signed URL for file:', file.name, urlError);
-                return null;
-              }
-
-              // Extract the original filename from the encoded storage path
-              const originalFileName = extractOriginalFileName(file.name, contract.id);
-              
-              return {
-                originalFileName: originalFileName,
-                fileType: 'application/pdf',
-                storagePath: file.name,
-                publicUrl: urlData.signedUrl,
-                uploadedAt: file.updated_at || new Date().toISOString(),
-                contractId: contract.id
-              };
-            })
-          );
-
-          // Filter out any null entries from failed URL generation
-          const validDocuments = documents.filter(doc => doc !== null);
-          setUploadedDocuments(validDocuments);
-        } else {
-          setUploadedDocuments([]);
-        }
-      } catch (error) {
-        console.error('Error loading documents:', error);
+        // Filter out any null entries from failed URL generation
+        const validDocuments = documents.filter(doc => doc !== null);
+        setUploadedDocuments(validDocuments);
+      } else {
         setUploadedDocuments([]);
       }
-    };
+    } catch (error) {
+      console.error('Error loading documents:', error);
+      setUploadedDocuments([]);
+    }
+  }, [contract?.id]);
 
+  // Load existing documents when contract changes
+  useEffect(() => {
     loadExistingDocuments();
   }, [contract?.id]);
   
@@ -309,6 +312,112 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
       title: 'Action Triggered',
       description: `${actionName} functionality will be implemented later.`,
     });
+  };
+
+  const handlePullRfqPdf = async () => {
+    if (!contract?.solicitation_number) {
+      toast({
+        title: 'Error',
+        description: 'No solicitation number available for this contract.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsPullingRfq(true);
+    
+    try {
+      // Check if GitHub token is available
+      const githubToken = getGitHubToken();
+      if (!githubToken) {
+        toast({
+          title: 'GitHub Token Required',
+          description: 'Please configure your GitHub token to trigger workflows.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Trigger GitHub Actions workflow via API
+      const response = await fetch(`${GITHUB_CONFIG.API_BASE}/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/dispatches`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `token ${githubToken}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          event_type: GITHUB_CONFIG.WORKFLOW_EVENTS.PULL_SINGLE_RFQ_PDF,
+          client_payload: {
+            solicitation_number: contract.solicitation_number
+          }
+        })
+      });
+
+      if (response.ok) {
+        toast({
+          title: 'Workflow Triggered',
+          description: `RFQ PDF download workflow has been started for ${contract.solicitation_number}. Check the Actions tab for progress.`,
+        });
+        
+        // Start polling for the PDF to appear in Supabase
+        startPollingForRfqPdf();
+      } else {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+    } catch (error) {
+      console.error('Error triggering workflow:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to trigger RFQ PDF download workflow. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsPullingRfq(false);
+    }
+  };
+
+  const startPollingForRfqPdf = () => {
+    // Poll every 10 seconds for up to 5 minutes
+    let attempts = 0;
+    const maxAttempts = 30;
+    
+    const pollInterval = setInterval(async () => {
+      attempts++;
+      
+      try {
+        // Check if RFQ PDF has been uploaded to Supabase
+        const { data: files, error } = await supabase.storage
+          .from('docs')
+          .list('', {
+            search: `rfq-${contract.solicitation_number}-`
+          });
+
+        if (error) {
+          console.error('Error checking for RFQ PDF:', error);
+        } else if (files && files.length > 0) {
+          // RFQ PDF found! Stop polling and refresh documents
+          clearInterval(pollInterval);
+          toast({
+            title: 'RFQ PDF Ready!',
+            description: 'The RFQ PDF has been downloaded and is now available in the Documents section.',
+          });
+          
+          // Refresh the uploaded documents list
+          loadExistingDocuments();
+        }
+      } catch (error) {
+        console.error('Error during polling:', error);
+      }
+      
+      if (attempts >= maxAttempts) {
+        clearInterval(pollInterval);
+        toast({
+          title: 'Polling Timeout',
+          description: 'RFQ PDF download is taking longer than expected. Check the Actions tab for status.',
+        });
+      }
+    }, 10000); // 10 seconds
   };
 
   // Parse the stage timeline from the contract data
@@ -689,6 +798,16 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                   >
                     <AlertCircle className="w-4 h-4 mr-2" />
                     Run Risk Assessment
+                  </Button>
+                  
+                  <Button 
+                    variant="outline" 
+                    className="justify-start"
+                    onClick={() => handlePullRfqPdf()}
+                    disabled={isPullingRfq}
+                  >
+                    <FileText className="w-4 h-4 mr-2" />
+                    {isPullingRfq ? 'Pulling RFQ PDF...' : 'Pull this RFQ PDF'}
                   </Button>
                 </div>
 

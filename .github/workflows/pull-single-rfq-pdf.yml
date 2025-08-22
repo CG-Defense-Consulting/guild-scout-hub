@@ -48,17 +48,69 @@ jobs:
       - name: Set up Chrome
         uses: browser-actions/setup-chrome@v1
         
-      - name: Install Chrome dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget unzip
-          sudo apt-get install -y libgconf-2-4 libnss3 libxss1 libasound2 libxtst6 xvfb
+          sudo apt-get install -y wget unzip xvfb
+          
+      - name: Configure Chrome permissions
+        run: |
+          # Ensure Chrome can run in headless mode
+          sudo mkdir -p /etc/opt/chrome/policies/managed/
+          echo '{"CommandLineFlagSecurityWarningsEnabled": false}' | sudo tee /etc/opt/chrome/policies/managed/managed_policies.json
+          
+      - name: Verify Chrome installation
+        run: |
+          echo "Chrome version:"
+          google-chrome --version || echo "Chrome not found in PATH"
+          echo "Chrome binary location:"
+          which google-chrome || echo "Chrome binary not found"
+          
+      - name: Install ChromeDriver
+        run: |
+          # Install ChromeDriver if not present
+          if ! command -v chromedriver &> /dev/null; then
+            echo "Installing ChromeDriver..."
+            CHROME_VERSION=$(google-chrome --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+            echo "Chrome version detected: $CHROME_VERSION"
+            
+            # Download appropriate ChromeDriver version
+            wget -q "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_VERSION" -O - || \
+            wget -q "https://chromedriver.storage.googleapis.com/LATEST_RELEASE" -O -
+            
+            CHROMEDRIVER_VERSION=$(wget -q "https://chromedriver.storage.googleapis.com/LATEST_RELEASE" -O -)
+            echo "ChromeDriver version to install: $CHROMEDRIVER_VERSION"
+            
+            wget -q "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
+            unzip chromedriver_linux64.zip
+            sudo mv chromedriver /usr/local/bin/
+            sudo chmod +x /usr/local/bin/chromedriver
+            rm chromedriver_linux64.zip
+            
+            echo "ChromeDriver installed successfully"
+          else
+            echo "ChromeDriver already installed:"
+            chromedriver --version
+          fi
+          
+      - name: Verify ChromeDriver installation
+        run: |
+          echo "ChromeDriver version:"
+          chromedriver --version
+          echo "ChromeDriver location:"
+          which chromedriver
           
       - name: Install Python dependencies
         run: |
           cd etl
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          
+          # Verify key dependencies
+          echo "Verifying Python dependencies..."
+          python -c "import selenium; print(f'Selenium version: {selenium.__version__}')"
+          python -c "import pdfplumber; print(f'PDFPlumber version: {pdfplumber.__version__}')"
+          python -c "from supabase import create_client; print('Supabase client import successful')"
           
       - name: Set up environment variables
         run: |
@@ -79,6 +131,35 @@ jobs:
         run: |
           cd etl
           mkdir -p downloads logs
+          
+      - name: Test Chrome setup
+        run: |
+          cd etl
+          echo "Testing Chrome setup..."
+          
+          # Test basic Chrome functionality
+          python -c "
+          from selenium import webdriver
+          from selenium.webdriver.chrome.options import Options
+          
+          print('Setting up Chrome options...')
+          chrome_options = Options()
+          chrome_options.add_argument('--headless')
+          chrome_options.add_argument('--no-sandbox')
+          chrome_options.add_argument('--disable-dev-shm-usage')
+          chrome_options.add_argument('--disable-gpu')
+          
+          print('Initializing Chrome driver...')
+          driver = webdriver.Chrome(options=chrome_options)
+          
+          print('Testing basic navigation...')
+          driver.get('https://www.google.com')
+          title = driver.title
+          print(f'Page title: {title}')
+          
+          driver.quit()
+          print('Chrome test completed successfully!')
+          "
           
       - name: Run RFQ PDF download
         id: download
@@ -139,6 +220,16 @@ jobs:
           else
             echo "No logs directory found"
           fi
+          
+          echo "=== System Information ==="
+          echo "Chrome version:"
+          google-chrome --version || echo "Chrome not available"
+          echo "ChromeDriver version:"
+          chromedriver --version || echo "ChromeDriver not available"
+          echo "Python version:"
+          python --version
+          echo "Pip list:"
+          pip list | grep -E "(selenium|pdfplumber|supabase)"
           
       - name: Cleanup
         if: always()
