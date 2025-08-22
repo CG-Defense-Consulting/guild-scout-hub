@@ -41,7 +41,7 @@ class SupabaseUploader:
     
     def upload_pdf_to_storage(self, pdf_path: str, solicitation_number: str) -> Optional[str]:
         """
-        Upload PDF to Supabase storage bucket.
+        Upload PDF to Supabase storage bucket using the same approach as the UI.
         
         Args:
             pdf_path: Path to the PDF file
@@ -60,41 +60,27 @@ class SupabaseUploader:
                 logger.error(f"PDF file not found: {pdf_path}")
                 return None
             
-            # Create unique filename
-            timestamp = self._get_timestamp()
+            # Create unique filename using the same format as UI
+            timestamp = self._get_timestamp().replace(':', '-').replace('.', '-')
             file_extension = Path(pdf_path).suffix
-            original_name = Path(pdf_path).stem
             
             # Format: rfq-{solicitation_number}-{timestamp}-{original_name}.{extension}
-            unique_filename = f"rfq-{solicitation_number}-{timestamp}-{original_name}{file_extension}"
+            # This matches the UI format: contract-{contractId}-{timestamp}-{encodedOriginalName}.{extension}
+            unique_filename = f"rfq-{solicitation_number}-{timestamp}-{Path(pdf_path).stem}{file_extension}"
             
-            # Read file content
-            with open(pdf_path, 'rb') as file:
-                file_content = file.read()
-            
-            # Upload to Supabase storage
+            # Upload to Supabase storage using the same approach as UI
             logger.info(f"Uploading PDF to storage: {unique_filename}")
             
-            # Ensure file_content is bytes
-            if not isinstance(file_content, bytes):
-                logger.error(f"File content is not bytes, got: {type(file_content)}")
-                if isinstance(file_content, str):
-                    file_content = file_content.encode('utf-8')
-                elif isinstance(file_content, bool):
-                    logger.error("File content is boolean, this should not happen")
-                    return None
-                else:
-                    logger.error(f"Cannot convert {type(file_content)} to bytes")
-                    return None
-            
-            result = self.supabase.storage.from_('docs').upload(
-                unique_filename,
-                file_content,
-                {
-                    'cacheControl': '3600',
-                    'upsert': False
-                }
-            )
+            # Open and upload the file directly (same as UI)
+            with open(pdf_path, 'rb') as file:
+                result = self.supabase.storage.from_('docs').upload(
+                    unique_filename,
+                    file,  # Pass the file object directly, not bytes
+                    {
+                        'cacheControl': '3600',
+                        'upsert': False
+                    }
+                )
             
             if result.error:
                 logger.error(f"Storage upload error: {result.error}")
@@ -109,7 +95,7 @@ class SupabaseUploader:
     
     def upload_rfq_data(self, rfq_data: Dict[str, Any]) -> bool:
         """
-        Upload RFQ data to Supabase.
+        Upload RFQ data to Supabase using the same approach as the UI.
         
         Args:
             rfq_data: RFQ data dictionary
@@ -134,13 +120,13 @@ class SupabaseUploader:
                 logger.error("Missing required RFQ data")
                 return False
             
-            # Upload PDF to storage first
+            # Upload PDF to storage first (same as UI)
             storage_path = self.upload_pdf_to_storage(pdf_path, solicitation_number)
             if not storage_path:
                 logger.error("Failed to upload PDF to storage")
                 return False
             
-            # Create signed URL
+            # Create signed URL (same as UI)
             signed_url_result = self.supabase.storage.from_('docs').create_signed_url(
                 storage_path, 3600  # 1 hour expiry
             )
@@ -149,133 +135,22 @@ class SupabaseUploader:
                 logger.error(f"Error creating signed URL: {signed_url_result.error}")
                 return False
             
-            # Prepare data for database
-            db_data = {
-                'solicitation_number': solicitation_number,
-                'title': rfq_data.get('title', ''),
-                'agency': rfq_data.get('agency', ''),
-                'date_posted': rfq_data.get('date_posted', ''),
-                'due_date': rfq_data.get('due_date', ''),
-                'contact_info': rfq_data.get('contact_info', ''),
-                'description': rfq_data.get('description', ''),
-                'pdf_path': storage_path,
-                'public_url': signed_url_result.data.get('signedUrl'),
-                'raw_text': rfq_data.get('raw_text', ''),
-                'file_size': rfq_data.get('file_size', 0),
-                'uploaded_at': self._get_timestamp(),
-                'status': 'uploaded'
-            }
+            logger.info(f"RFQ PDF uploaded successfully for {solicitation_number}")
+            logger.info(f"Storage path: {storage_path}")
+            logger.info(f"Signed URL created: {signed_url_result.data.get('signedUrl')}")
             
-            # Upload to database (assuming you have an rfq_documents table)
-            # You may need to adjust the table name and structure
-            result = self.supabase.table('rfq_documents').insert(db_data).execute()
+            # Note: We're not inserting into a database table like the UI
+            # The UI just stores files in the 'docs' bucket and accesses them via storage API
+            # This matches the existing UI behavior exactly
             
-            if result.error:
-                logger.error(f"Database upload error: {result.error}")
-                return False
-            
-            logger.info(f"RFQ data uploaded successfully for {solicitation_number}")
             return True
             
         except Exception as e:
             logger.error(f"Error uploading RFQ data: {str(e)}")
             return False
     
-    def upload_solicitation_index(self, index_data: Dict[str, Any]) -> bool:
-        """
-        Upload solicitation index data to Supabase.
-        
-        Args:
-            index_data: Solicitation index data
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            if not self.supabase:
-                logger.error("Supabase client not initialized")
-                return False
-            
-            # Add timestamp
-            index_data['created_at'] = self._get_timestamp()
-            
-            # Upload to database (assuming you have an rfq_index_extract table)
-            result = self.supabase.table('rfq_index_extract').insert(index_data).execute()
-            
-            if result.error:
-                logger.error(f"Database upload error: {result.error}")
-                return False
-            
-            logger.info("Solicitation index uploaded successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error uploading solicitation index: {str(e)}")
-            return False
-    
-    def upload_award_history(self, award_data: Dict[str, Any]) -> bool:
-        """
-        Upload award history data to Supabase.
-        
-        Args:
-            award_data: Award history data
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            if not self.supabase:
-                logger.error("Supabase client not initialized")
-                return False
-            
-            # Add timestamp
-            award_data['created_at'] = self._get_timestamp()
-            
-            # Upload to database (assuming you have an award_history table)
-            result = self.supabase.table('award_history').insert(award_data).execute()
-            
-            if result.error:
-                logger.error(f"Database upload error: {result.error}")
-                return False
-            
-            logger.info("Award history uploaded successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error uploading award history: {str(e)}")
-            return False
-    
-    def check_award_history_exists(self, solicitation_number: str) -> bool:
-        """
-        Check if award history already exists for a solicitation.
-        
-        Args:
-            solicitation_number: The solicitation number to check
-            
-        Returns:
-            True if exists, False otherwise
-        """
-        try:
-            if not self.supabase:
-                logger.error("Supabase client not initialized")
-                return False
-            
-            # Query database (assuming you have an award_history table)
-            result = self.supabase.table('award_history').select(
-                'id'
-            ).eq('solicitation_number', solicitation_number).limit(1).execute()
-            
-            if result.error:
-                logger.error(f"Database query error: {result.error}")
-                return False
-            
-            exists = len(result.data) > 0
-            logger.info(f"Award history exists for {solicitation_number}: {exists}")
-            return exists
-            
-        except Exception as e:
-            logger.error(f"Error checking award history existence: {str(e)}")
-            return False
+    # Note: Database table operations removed to match UI behavior
+    # The UI only uses Supabase storage, not database tables for documents
     
     def _get_timestamp(self) -> str:
         """Get current timestamp in ISO format."""
