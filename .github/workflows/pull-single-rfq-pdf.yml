@@ -118,6 +118,7 @@ jobs:
           cat > etl/.env << EOF
           VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DIBBS_BASE_URL=https://dibbs2.bsm.dla.mil
           DIBBS_DOWNLOAD_DIR=./downloads
           SELENIUM_HEADLESS=true

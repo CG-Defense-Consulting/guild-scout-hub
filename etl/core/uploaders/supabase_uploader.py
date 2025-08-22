@@ -25,11 +25,19 @@ class SupabaseUploader:
         try:
             # Get environment variables
             supabase_url = os.getenv('VITE_SUPABASE_URL')
-            supabase_key = os.getenv('VITE_SUPABASE_PUBLISHABLE_KEY')
+            
+            # Try service role key first (for ETL workflows), then fallback to publishable key
+            supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('VITE_SUPABASE_PUBLISHABLE_KEY')
             
             if not supabase_url or not supabase_key:
                 logger.error("Missing Supabase environment variables")
                 raise ValueError("Missing Supabase environment variables")
+            
+            # Log which key type we're using (without exposing the key)
+            if os.getenv('SUPABASE_SERVICE_ROLE_KEY'):
+                logger.info("Using Supabase service role key for authenticated access")
+            else:
+                logger.info("Using Supabase publishable key for anonymous access")
             
             # Create client
             self.supabase = create_client(supabase_url, supabase_key)
@@ -70,17 +78,37 @@ class SupabaseUploader:
             
             # Upload to Supabase storage using the same approach as UI
             logger.info(f"Uploading PDF to storage: {unique_filename}")
+            logger.info(f"PDF path for upload: {pdf_path}")
+            logger.info(f"PDF path type: {type(pdf_path)}")
             
-            # Open and upload the file directly (same as UI)
+            # Read file content and upload as bytes (more reliable than file object)
             with open(pdf_path, 'rb') as file:
-                result = self.supabase.storage.from_('docs').upload(
-                    unique_filename,
-                    file,  # Pass the file object directly, not bytes
-                    {
-                        'cacheControl': '3600',
-                        'upsert': False
-                    }
-                )
+                file_content = file.read()
+                logger.info(f"File read successfully, content type: {type(file_content)}, size: {len(file_content)} bytes")
+                
+                # Try to upload step by step to isolate the error
+                try:
+                    logger.info("Getting storage bucket...")
+                    bucket = self.supabase.storage.from_('docs')
+                    logger.info("✓ Storage bucket obtained")
+                    
+                    logger.info("Calling upload method...")
+                    result = bucket.upload(
+                        unique_filename,
+                        file_content,  # Pass bytes content
+                        {
+                            'cacheControl': '3600',
+                            'upsert': False
+                        }
+                    )
+                    logger.info("✓ Upload method called successfully")
+                    
+                except Exception as upload_error:
+                    logger.error(f"Upload error details: {str(upload_error)}")
+                    logger.error(f"Upload error type: {type(upload_error)}")
+                    import traceback
+                    logger.error(f"Upload error traceback: {traceback.format_exc()}")
+                    raise upload_error
             
             if result.error:
                 logger.error(f"Storage upload error: {result.error}")
@@ -121,6 +149,7 @@ class SupabaseUploader:
                 return False
             
             # Upload PDF to storage first (same as UI)
+            logger.info(f"About to upload PDF to storage. Path: {pdf_path}, Type: {type(pdf_path)}")
             storage_path = self.upload_pdf_to_storage(pdf_path, solicitation_number)
             if not storage_path:
                 logger.error("Failed to upload PDF to storage")

@@ -76,6 +76,12 @@ def pull_single_rfq_pdf(solicitation_number: str, output_dir: Optional[str] = No
             'file_size': extracted_data.get('file_size', 0)
         }
         
+        # Debug: log the upload data
+        logger.info(f"Upload data keys: {list(upload_data.keys())}")
+        logger.info(f"PDF path type: {type(upload_data['pdf_path'])}")
+        logger.info(f"PDF path value: {upload_data['pdf_path']}")
+        logger.info(f"Extracted data keys: {list(extracted_data.keys())}")
+        
         # Upload to Supabase
         logger.info("Uploading to database...")
         uploader = SupabaseUploader()

@@ -8,7 +8,10 @@ Go to your repository → Settings → Secrets and variables → Actions, then a
 ```
 VITE_SUPABASE_URL = https://your-project.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY = your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY = your_supabase_service_role_key
 ```
+
+**⚠️ Important**: The service role key is required for storage access since the `docs` bucket has authenticated-user-only policies.
 
 ### 2. **Test the Workflow**
 - Go to Actions → Pull Single RFQ PDF
