@@ -144,32 +144,29 @@ class DibbsScraper:
             last_char = solicitation_number[-1]
             rfq_url = f"{self.base_url}/Downloads/RFQ/{last_char}/{solicitation_number}.PDF"
             
-            # Handle consent page and download
+            # Handle consent page first
             if self._handle_consent_page(rfq_url):
-                # Check if PDF was downloaded
-                expected_filename = f"{solicitation_number}.PDF"
-                expected_path = os.path.join(self.download_dir, expected_filename)
+                # Now download the PDF using requests with session cookies
+                pdf_path = self._download_pdf_with_requests(rfq_url, solicitation_number)
                 
-                # Wait for download to complete
-                max_wait = 30  # seconds
-                wait_time = 0
-                while wait_time < max_wait:
-                    if os.path.exists(expected_path):
-                        logger.info(f"PDF downloaded successfully: {expected_path}")
-                        
+                if pdf_path and os.path.exists(pdf_path):
+                    logger.info(f"PDF downloaded successfully: {pdf_path}")
+                    
+                    # Verify the PDF is valid
+                    if self._verify_pdf(pdf_path):
                         # Return solicitation info
                         return {
                             'number': solicitation_number,
                             'url': rfq_url,
-                            'pdf_path': expected_path,
-                            'filename': expected_filename
+                            'pdf_path': pdf_path,
+                            'filename': f"{solicitation_number}.PDF"
                         }
-                    
-                    time.sleep(1)
-                    wait_time += 1
-                
-                logger.error(f"PDF download timeout for {solicitation_number}")
-                return None
+                    else:
+                        logger.error(f"Downloaded PDF is corrupted: {pdf_path}")
+                        return None
+                else:
+                    logger.error(f"Failed to download PDF for {solicitation_number}")
+                    return None
             else:
                 logger.error(f"Failed to handle consent page for {solicitation_number}")
                 return None
@@ -245,6 +242,109 @@ class DibbsScraper:
         # TODO: Implement actual detail fetching logic
         return None
     
+    def _download_pdf_with_requests(self, pdf_url: str, solicitation_number: str) -> Optional[str]:
+        """
+        Download PDF using requests with session cookies from Selenium.
+        
+        Args:
+            pdf_url: URL of the PDF to download
+            solicitation_number: Solicitation number for filename
+            
+        Returns:
+            Path to downloaded PDF or None if failed
+        """
+        try:
+            # Get cookies from Selenium session
+            cookies = {}
+            for cookie in self.driver.get_cookies():
+                cookies[cookie['name']] = cookie['value']
+            
+            # Use requests to download the PDF
+            logger.info(f"Downloading PDF with requests: {pdf_url}")
+            
+            # Set headers to mimic browser request
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'application/pdf,application/octet-stream,*/*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
+            }
+            
+            response = requests.get(pdf_url, cookies=cookies, headers=headers, timeout=30)
+            response.raise_for_status()
+            
+            # Check if response is actually a PDF
+            content_type = response.headers.get('content-type', '').lower()
+            if 'pdf' not in content_type and 'octet-stream' not in content_type:
+                logger.warning(f"Unexpected content type: {content_type}")
+            
+            # Check PDF magic bytes
+            if not response.content.startswith(b'%PDF'):
+                logger.error("Downloaded content is not a valid PDF (missing PDF header)")
+                return None
+            
+            # Save the PDF
+            filename = f"{solicitation_number}.PDF"
+            pdf_path = os.path.join(self.download_dir, filename)
+            
+            with open(pdf_path, 'wb') as f:
+                f.write(response.content)
+            
+            logger.info(f"PDF downloaded successfully: {pdf_path} ({len(response.content)} bytes)")
+            return pdf_path
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request error downloading PDF: {str(e)}")
+            return None
+        except Exception as e:
+            logger.error(f"Error downloading PDF with requests: {str(e)}")
+            return None
+    
+    def _verify_pdf(self, pdf_path: str) -> bool:
+        """
+        Verify that the downloaded file is a valid PDF.
+        
+        Args:
+            pdf_path: Path to the PDF file
+            
+        Returns:
+            True if PDF is valid, False otherwise
+        """
+        try:
+            # Check file exists and has content
+            if not os.path.exists(pdf_path):
+                logger.error(f"PDF file does not exist: {pdf_path}")
+                return False
+            
+            file_size = os.path.getsize(pdf_path)
+            if file_size == 0:
+                logger.error(f"PDF file is empty: {pdf_path}")
+                return False
+            
+            # Check PDF magic bytes
+            with open(pdf_path, 'rb') as f:
+                header = f.read(4)
+                if not header.startswith(b'%PDF'):
+                    logger.error(f"File is not a valid PDF (missing PDF header): {pdf_path}")
+                    return False
+            
+            # Try to read PDF end marker
+            with open(pdf_path, 'rb') as f:
+                f.seek(-1024, 2)  # Read last 1024 bytes
+                tail = f.read()
+                if b'%%EOF' not in tail:
+                    logger.warning(f"PDF may be truncated (missing EOF marker): {pdf_path}")
+                    # Don't fail here as some PDFs might still be valid
+            
+            logger.info(f"PDF verification passed: {pdf_path} ({file_size} bytes)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error verifying PDF: {str(e)}")
+            return False
+
     def extract_nsn_amsc(self, nsn: str) -> Optional[str]:
         """
         Extract AMSC code from NSN Details page.
