@@ -159,12 +159,11 @@ class SupabaseUploader:
                 
                 logger.info("Calling upload method...")
                 # Upload the file directly to preserve content type
+                # Note: Supabase Python client doesn't support content-type in options
+                # The file extension should be sufficient for content type detection
                 result = bucket.upload(
                     unique_filename,
-                    pdf_path,  # Pass file path directly
-                    options={
-                        'content-type': 'application/pdf'
-                    }
+                    pdf_path  # File path to preserve metadata and extension
                 )
                 logger.info("✓ Upload method called successfully")
                 logger.info(f"Upload result type: {type(result)}")

@@ -360,11 +360,14 @@ class DibbsScraper:
             
             # Construct the NSN Details URL
             nsn_url = f"https://www.dibbs.bsm.dla.mil/RFQ/RFQNsn.aspx?value={nsn}&category=nsn"
+            logger.info(f"Navigating to NSN URL: {nsn_url}")
             
             # Handle consent page and navigate to NSN details
             if not self._handle_consent_page(nsn_url):
                 logger.error(f"Failed to handle consent page for NSN: {nsn}")
                 return None
+            
+            logger.info("Consent page handled successfully, waiting for NSN page to load...")
             
             # Wait for page to load and look for AMSC field
             from selenium.webdriver.support.ui import WebDriverWait
@@ -372,6 +375,21 @@ class DibbsScraper:
             from selenium.webdriver.common.by import By
             
             wait = WebDriverWait(self.driver, 10)
+            
+            # Wait for page to be fully loaded
+            try:
+                wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+                logger.info("Page loaded successfully")
+            except Exception as e:
+                logger.warning(f"Page load wait failed: {str(e)}")
+            
+            # Get current URL to confirm we're on the right page
+            current_url = self.driver.current_url
+            logger.info(f"Current page URL: {current_url}")
+            
+            # Get page title for debugging
+            page_title = self.driver.title
+            logger.info(f"Page title: {page_title}")
             
             # Look for text containing "AMSC:" followed by a letter
             # The AMSC field is usually displayed as "AMSC: G" or similar
@@ -381,31 +399,91 @@ class DibbsScraper:
             page_source = self.driver.page_source
             import re
             
+            logger.info(f"Page source length: {len(page_source)} characters")
+            
+            # Log a sample of the page source around where AMSC might be
+            amsc_index = page_source.find("AMSC:")
+            if amsc_index != -1:
+                start = max(0, amsc_index - 100)
+                end = min(len(page_source), amsc_index + 200)
+                sample_text = page_source[start:end]
+                logger.info(f"Found 'AMSC:' at position {amsc_index}, sample context:")
+                logger.info(f"Context: ...{sample_text}...")
+            else:
+                logger.warning("'AMSC:' text not found in page source")
+            
+            # Search for AMSC pattern in page source
             match = re.search(amsc_pattern, page_source)
             if match:
                 amsc_code = match.group(1)
-                logger.info(f"Found AMSC code: {amsc_code}")
+                logger.info(f"✓ Found AMSC code via regex: {amsc_code}")
                 return amsc_code
             
-            # Alternative: Look for specific elements that might contain AMSC
+            logger.info("Regex search failed, trying alternative search methods...")
+            
+            # Alternative 1: Look for any element containing "AMSC:"
             try:
-                # Look for any element containing "AMSC:"
+                logger.info("Searching for elements containing 'AMSC:' text...")
                 amsc_elements = self.driver.find_elements(By.XPATH, "//*[contains(text(), 'AMSC:')]")
-                for element in amsc_elements:
+                logger.info(f"Found {len(amsc_elements)} elements containing 'AMSC:' text")
+                
+                for i, element in enumerate(amsc_elements):
                     text = element.text
+                    logger.info(f"Element {i+1} text: '{text}'")
                     match = re.search(amsc_pattern, text)
                     if match:
                         amsc_code = match.group(1)
-                        logger.info(f"Found AMSC code in element: {amsc_code}")
+                        logger.info(f"✓ Found AMSC code in element {i+1}: {amsc_code}")
                         return amsc_code
             except Exception as e:
                 logger.warning(f"Alternative AMSC search failed: {str(e)}")
             
-            logger.warning(f"AMSC code not found for NSN: {nsn}")
+            # Alternative 2: Look for specific HTML structure (like the <strong> tags in your example)
+            try:
+                logger.info("Searching for <strong> tags that might contain AMSC...")
+                strong_elements = self.driver.find_elements(By.TAG_NAME, "strong")
+                logger.info(f"Found {len(strong_elements)} <strong> elements")
+                
+                for i, element in enumerate(strong_elements):
+                    text = element.text.strip()
+                    if text and len(text) == 1 and text.isalpha():
+                        logger.info(f"Strong element {i+1} contains single letter: '{text}'")
+                        # Check if this is near AMSC text
+                        parent_text = element.find_element(By.XPATH, "..").text
+                        if "AMSC:" in parent_text:
+                            logger.info(f"✓ Found AMSC code in <strong> tag: {text}")
+                            return text
+            except Exception as e:
+                logger.warning(f"Strong tag search failed: {str(e)}")
+            
+            # Alternative 3: Look for legend elements (common in forms)
+            try:
+                logger.info("Searching for <legend> elements...")
+                legend_elements = self.driver.find_elements(By.TAG_NAME, "legend")
+                logger.info(f"Found {len(legend_elements)} <legend> elements")
+                
+                for i, element in enumerate(legend_elements):
+                    text = element.text
+                    logger.info(f"Legend element {i+1}: '{text}'")
+                    if "AMSC:" in text:
+                        match = re.search(amsc_pattern, text)
+                        if match:
+                            amsc_code = match.group(1)
+                            logger.info(f"✓ Found AMSC code in legend: {amsc_code}")
+                            return amsc_code
+            except Exception as e:
+                logger.warning(f"Legend search failed: {str(e)}")
+            
+            # Log the full page source for debugging if AMSC not found
+            logger.error(f"AMSC code not found for NSN: {nsn}")
+            logger.error("Full page source for debugging:")
+            logger.error(page_source)
             return None
             
         except Exception as e:
             logger.error(f"Error extracting AMSC code for NSN {nsn}: {str(e)}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return None
     
     def cleanup(self):
