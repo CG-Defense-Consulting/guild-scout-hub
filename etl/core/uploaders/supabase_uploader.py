@@ -23,11 +23,34 @@ class SupabaseUploader:
     def _initialize_client(self):
         """Initialize the Supabase client."""
         try:
+            # Load environment variables from parent directory .env file
+            from pathlib import Path
+            import dotenv
+            
+            # Look for .env file in parent directories
+            current_file = Path(__file__).resolve()  # Get absolute path
+            project_root = current_file.parent.parent.parent.parent  # Go up from core/uploaders/ to project root
+            env_file = project_root / '.env'
+            
+            if env_file.exists():
+                logger.info(f"Loading environment from: {env_file}")
+                dotenv.load_dotenv(env_file)
+                logger.info("Environment file loaded successfully")
+            else:
+                logger.warning(f"Environment file not found at: {env_file}")
+            
             # Get environment variables
             supabase_url = os.getenv('VITE_SUPABASE_URL')
+            logger.info(f"Supabase URL loaded: {'✓' if supabase_url else '✗'}")
             
             # Try service role key first (for ETL workflows), then fallback to publishable key
-            supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('VITE_SUPABASE_PUBLISHABLE_KEY')
+            service_role_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+            publishable_key = os.getenv('VITE_SUPABASE_PUBLISHABLE_KEY')
+            
+            logger.info(f"Service role key loaded: {'✓' if service_role_key else '✗'}")
+            logger.info(f"Publishable key loaded: {'✓' if publishable_key else '✗'}")
+            
+            supabase_key = service_role_key or publishable_key
             
             if not supabase_url or not supabase_key:
                 logger.error("Missing Supabase environment variables")
@@ -98,6 +121,8 @@ class SupabaseUploader:
                         file_content  # Pass bytes content
                     )
                     logger.info("✓ Upload method called successfully")
+                    logger.info(f"Upload result type: {type(result)}")
+                    logger.info(f"Upload result: {result}")
                     
                 except Exception as upload_error:
                     logger.error(f"Upload error details: {str(upload_error)}")
@@ -106,9 +131,14 @@ class SupabaseUploader:
                     logger.error(f"Upload error traceback: {traceback.format_exc()}")
                     raise upload_error
             
-            if result.error:
+            # Check if upload was successful - handle different response formats
+            if hasattr(result, 'error') and result.error:
                 logger.error(f"Storage upload error: {result.error}")
                 return None
+            elif hasattr(result, 'data') and result.data:
+                logger.info(f"Upload successful with data: {result.data}")
+            else:
+                logger.info(f"Upload completed with result: {result}")
             
             logger.info(f"PDF uploaded successfully: {unique_filename}")
             return unique_filename
@@ -144,13 +174,22 @@ class SupabaseUploader:
                 storage_path, 3600  # 1 hour expiry
             )
             
-            if signed_url_result.error:
+            logger.info(f"Signed URL result type: {type(signed_url_result)}")
+            logger.info(f"Signed URL result: {signed_url_result}")
+            
+            if hasattr(signed_url_result, 'error') and signed_url_result.error:
                 logger.error(f"Error creating signed URL: {signed_url_result.error}")
                 return False
             
             logger.info(f"RFQ PDF uploaded successfully for {solicitation_number}")
             logger.info(f"Storage path: {storage_path}")
-            logger.info(f"Signed URL created: {signed_url_result.data.get('signedUrl')}")
+            
+            # Handle different response formats for signed URL
+            if hasattr(signed_url_result, 'data') and signed_url_result.data:
+                signed_url = signed_url_result.data.get('signedUrl')
+                logger.info(f"Signed URL created: {signed_url}")
+            else:
+                logger.info(f"Signed URL result: {signed_url_result}")
             
             return True
             
