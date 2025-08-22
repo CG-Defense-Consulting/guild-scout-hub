@@ -66,7 +66,8 @@ const RfqPdfButton = ({ solicitationNumber, contractId }: { solicitationNumber: 
     checkForRfqPdf();
   }, [solicitationNumber, contractId]);
 
-  const handleClick = async () => {
+  const handleClick = async (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card click
     if (hasPdf && pdfUrl) {
       // Open the PDF from Supabase
       window.open(pdfUrl, '_blank');
@@ -204,8 +205,18 @@ export const KanbanBoard = ({
     const currentStage = contract.current_stage || currentColumn;
     const validTransitions = getValidTransitions(currentStage);
     
+    // Handle card click to view details
+    const handleCardClick = (e: React.MouseEvent) => {
+      // Don't trigger if clicking on buttons or their children
+      const target = e.target as HTMLElement;
+      if (target.closest('button')) {
+        return;
+      }
+      onContractClick(contract);
+    };
+    
     return (
-      <Card className="mb-3 cursor-pointer hover:shadow-md transition-shadow">
+      <Card className="mb-3 cursor-pointer hover:shadow-md transition-shadow" onClick={handleCardClick}>
         <CardContent className="p-3">
           <div className="flex gap-3">
             {/* Left side - Contract details */}
@@ -272,7 +283,8 @@ export const KanbanBoard = ({
                     size="sm"
                     variant="ghost"
                     className="h-6 w-6 p-0 flex-shrink-0 text-green-600 hover:text-green-700 hover:bg-green-50"
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation(); // Prevent card click
                       const url = `https://pcf1x.bsm.dla.mil/cfolders/fol_de.htm?p_sol_no=${contract.solicitation_number}`;
                       window.open(url, '_blank');
                     }}
@@ -288,7 +300,8 @@ export const KanbanBoard = ({
                     size="sm"
                     variant="ghost"
                     className="h-6 w-6 p-0 flex-shrink-0 text-purple-600 hover:text-purple-700 hover:bg-purple-50"
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation(); // Prevent card click
                       const url = `https://www.dibbs.bsm.dla.mil/RFQ/RFQNsn.aspx?value=${contract.national_stock_number}&category=nsn`;
                       window.open(url, '_blank');
                     }}
@@ -298,22 +311,17 @@ export const KanbanBoard = ({
                   </Button>
                 )}
                 
-                {/* View button */}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-6 w-6 p-0 flex-shrink-0"
-                  onClick={() => onContractClick(contract)}
-                >
-                  <Eye className="w-3 h-3" />
-                </Button>
+
                 
                 {/* Delete button */}
                 <Button
                   size="sm"
                   variant="ghost"
                   className="h-6 w-6 p-0 flex-shrink-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                  onClick={() => handleDeleteContract(contract.id, contract.solicitation_number)}
+                  onClick={(e) => {
+                    e.stopPropagation(); // Prevent card click
+                    handleDeleteContract(contract.id, contract.solicitation_number);
+                  }}
                   disabled={deleteFromQueue.isPending}
                 >
                   <Trash2 className="w-3 h-3" />
@@ -330,7 +338,10 @@ export const KanbanBoard = ({
                       size="sm"
                       variant="ghost"
                       className="h-5 px-2 text-xs justify-start text-green-600 hover:text-green-700 hover:bg-green-50 border border-transparent hover:border-green-200 min-w-0"
-                      onClick={() => handleStatusChange(contract.id, targetStatus)}
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent card click
+                        handleStatusChange(contract.id, targetStatus);
+                      }}
                       disabled={updateStatus.isPending}
                     >
                       <ArrowRight className="w-3 h-3 mr-1 flex-shrink-0" />
@@ -345,7 +356,10 @@ export const KanbanBoard = ({
                       size="sm"
                       variant="ghost"
                       className="h-5 px-2 text-xs justify-start text-orange-600 hover:text-orange-700 hover:bg-orange-50 border border-transparent hover:border-orange-200 min-w-0"
-                      onClick={() => handleStatusChange(contract.id, targetStatus)}
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent card click
+                        handleStatusChange(contract.id, targetStatus);
+                      }}
                       disabled={updateStatus.isPending}
                     >
                       <ArrowLeft className="w-3 h-3 mr-1 flex-shrink-0" />

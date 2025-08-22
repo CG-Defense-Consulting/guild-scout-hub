@@ -13,12 +13,11 @@ import { useAuth } from '@/hooks/use-auth';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { GITHUB_CONFIG, getGitHubToken } from '@/config/github';
+
 import { Search, Plus, TrendingUp, Calendar, Package, Tag, Filter, X, ChevronDown, ChevronUp, ExternalLink, FileText, Database } from 'lucide-react';
 
 // RFQ PDF Button Component
 const RfqPdfButton = ({ solicitationNumber, nsn }: { solicitationNumber: string; nsn: string }) => {
-  const [isLoading, setIsLoading] = useState(false);
   const [hasPdf, setHasPdf] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const { toast } = useToast();
@@ -112,119 +111,9 @@ const RfqPdfButton = ({ solicitationNumber, nsn }: { solicitationNumber: string;
     }
   };
 
-  const handlePullRfqPdf = async () => {
-    if (isLoading) return;
-    
-    setIsLoading(true);
-    
-    try {
-      // Check if GitHub token is available
-      const githubToken = getGitHubToken();
-      if (!githubToken) {
-        toast({
-          title: 'GitHub Token Required',
-          description: 'Please configure your GitHub token to trigger workflows.',
-          variant: 'destructive',
-        });
-        return;
-      }
 
-      // Trigger GitHub Actions workflow via API
-      const response = await fetch(`${GITHUB_CONFIG.API_BASE}/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/dispatches`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `token ${githubToken}`,
-          'Accept': 'application/vnd.github.v3+json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          event_type: GITHUB_CONFIG.WORKFLOW_EVENTS.PULL_SINGLE_RFQ_PDF,
-          client_payload: {
-            solicitation_number: solicitationNumber
-          }
-        })
-      });
 
-      if (response.ok) {
-        toast({
-          title: 'Workflow Triggered',
-          description: `RFQ PDF download workflow has been started for ${solicitationNumber}. Check the Actions tab for progress.`,
-        });
-        
-        // Start polling for the PDF to appear
-        startPollingForRfqPdf();
-      } else {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-    } catch (error) {
-      console.error('Error triggering workflow:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to trigger RFQ PDF download workflow. Please try again.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
-  const startPollingForRfqPdf = () => {
-    // Poll every 10 seconds for up to 5 minutes
-    let attempts = 0;
-    const maxAttempts = 30;
-    
-    const pollInterval = setInterval(async () => {
-      attempts++;
-      
-      try {
-        // Look for files with the new contract- prefix pattern
-        const { data: files, error } = await supabase.storage
-          .from('docs')
-          .list('', {
-            search: `contract-`
-          });
-
-        if (error) {
-          console.error('Error checking for RFQ PDF:', error);
-        } else if (files && files.length > 0) {
-          // Check if any file contains the solicitation number
-          const rfqFile = files.find(file => 
-            file.name.includes(solicitationNumber) && file.name.endsWith('.PDF')
-          );
-          
-          if (rfqFile) {
-            // RFQ PDF found! Stop polling
-            clearInterval(pollInterval);
-            
-            // Get the signed URL
-            const { data: urlData, error: urlError } = await supabase.storage
-              .from('docs')
-              .createSignedUrl(rfqFile.name, 3600);
-
-            if (!urlError && urlData) {
-              setHasPdf(true);
-              setPdfUrl(urlData.signedUrl);
-              
-              toast({
-                title: 'RFQ PDF Ready!',
-                description: 'The RFQ PDF has been downloaded and is now available.',
-              });
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error during polling:', error);
-      }
-      
-      if (attempts >= maxAttempts) {
-        clearInterval(pollInterval);
-        toast({
-          title: 'Polling Timeout',
-          description: 'RFQ PDF download is taking longer than expected. Check the Actions tab for status.',
-        });
-      }
-    }, 10000); // 10 seconds
-  };
 
   return (
     <div className="flex gap-1">
@@ -239,18 +128,7 @@ const RfqPdfButton = ({ solicitationNumber, nsn }: { solicitationNumber: string;
         PDF
       </Button>
       
-      {!hasPdf && (
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-6 px-1 text-xs text-green-600 hover:text-green-700 hover:bg-green-50"
-          onClick={handlePullRfqPdf}
-          disabled={isLoading}
-          title="Pull RFQ PDF to Supabase"
-        >
-          {isLoading ? '...' : '+'}
-        </Button>
-      )}
+
     </div>
   );
 };

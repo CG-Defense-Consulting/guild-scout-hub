@@ -136,8 +136,8 @@ class SupabaseUploader:
                 contract_id = solicitation_number
             
             # Create unique filename using the same format as UI
-            # Add 'Z' suffix to timestamp to match Supabase storage expectations
-            timestamp = self._get_timestamp().replace(':', '-').replace('.', '-') + 'Z'
+            # Format timestamp to match Supabase storage expectations
+            timestamp = self._get_timestamp().replace(':', '-').replace('.', '-')
             file_extension = Path(pdf_path).suffix
             
             # Format: contract-{contractId}-{timestamp}-{encodedOriginalName}.{extension}

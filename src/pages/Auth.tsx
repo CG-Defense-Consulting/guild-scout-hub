@@ -9,14 +9,20 @@ import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 
 export const Auth = () => {
-  const { user, signIn, userRole, loading /* signUp */ } = useAuth();
+  const { user, signIn, userRole, loading, intendedPath, clearIntendedPath /* signUp */ } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   
   // Wait for both user authentication AND role loading to complete
   // This prevents the race condition where we redirect before userRole is loaded
   if (user && !loading && userRole) {
-    // Redirect based on user role, not hardcoded
+    // If there's an intended path, redirect there first
+    if (intendedPath && intendedPath !== '/auth' && intendedPath !== '/unauthorized') {
+      clearIntendedPath(); // Clear the intended path
+      return <Navigate to={intendedPath} replace />;
+    }
+    
+    // Otherwise redirect based on user role
     if (userRole === 'CGDC') {
       return <Navigate to="/scouting" replace />;
     } else if (userRole === 'PARTNER') {
