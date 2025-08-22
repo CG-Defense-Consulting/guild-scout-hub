@@ -95,11 +95,7 @@ class SupabaseUploader:
                     logger.info("Calling upload method...")
                     result = bucket.upload(
                         unique_filename,
-                        file_content,  # Pass bytes content
-                        {
-                            'cacheControl': '3600',
-                            'upsert': False
-                        }
+                        file_content  # Pass bytes content
                     )
                     logger.info("✓ Upload method called successfully")
                     
