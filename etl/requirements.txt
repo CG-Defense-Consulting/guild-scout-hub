@@ -1,0 +1,33 @@
+# ETL Module Dependencies
+
+# Web Scraping
+selenium>=4.15.0
+webdriver-manager>=4.0.0
+
+# PDF Processing
+PyPDF2>=3.0.0
+pdfplumber>=0.10.0
+
+# Supabase Integration
+supabase>=2.0.0
+
+# HTTP Requests
+requests>=2.31.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Utilities
+python-dotenv>=1.0.0
+pathlib2>=2.3.7
+
+# Logging and Monitoring
+structlog>=23.0.0
+
+# Date/Time Handling
+python-dateutil>=2.8.2
+
+# Optional: For advanced PDF processing
+# pdf2image>=1.16.0  # Requires poppler
+# pytesseract>=0.3.10  # Requires tesseract-ocr
