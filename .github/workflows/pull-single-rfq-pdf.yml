@@ -71,16 +71,12 @@ jobs:
           # Install ChromeDriver if not present
           if ! command -v chromedriver &> /dev/null; then
             echo "Installing ChromeDriver..."
-            CHROME_VERSION=$(google-chrome --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-            echo "Chrome version detected: $CHROME_VERSION"
             
-            # Download appropriate ChromeDriver version
-            wget -q "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_VERSION" -O - || \
-            wget -q "https://chromedriver.storage.googleapis.com/LATEST_RELEASE" -O -
+            # Get the latest stable ChromeDriver version
+            CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE")
+            echo "Latest ChromeDriver version: $CHROMEDRIVER_VERSION"
             
-            CHROMEDRIVER_VERSION=$(wget -q "https://chromedriver.storage.googleapis.com/LATEST_RELEASE" -O -)
-            echo "ChromeDriver version to install: $CHROMEDRIVER_VERSION"
-            
+            # Download and install ChromeDriver
             wget -q "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
             unzip chromedriver_linux64.zip
             sudo mv chromedriver /usr/local/bin/

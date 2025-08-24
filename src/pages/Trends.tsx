@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Calendar, TrendingUp, BarChart3, PieChart, Activity, DollarSign, Package, Award } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useTrendsData } from '@/hooks/use-database';
+import { useTrendsAggregated, refreshTrendsView } from '@/hooks/use-database';
 
 // Chart components with fallback
 import { LineChart, Line, BarChart, Bar, PieChart as RechartsPieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -47,152 +47,85 @@ export const Trends = () => {
 
   const { start, end } = getDateRange();
 
-  // Fetch trends data using the dedicated hook (no row limits)
-  const { data: trendsData, isLoading: trendsLoading, error: trendsError } = useTrendsData(start, end);
+  // Fetch aggregated trends data from the database view
+  const { data: aggregatedData, isLoading: trendsLoading, error: trendsError } = useTrendsAggregated(dateRange);
   
-  const rfqData = trendsData?.rfqData || [];
-  const awardData = trendsData?.awardData || [];
   const rfqLoading = trendsLoading;
   const awardLoading = trendsLoading;
   const rfqError = trendsError;
   const awardError = trendsError;
   
-  // Show data count for debugging
+  // Function to refresh the materialized view
+  const handleRefreshTrends = async () => {
+    try {
+      await refreshTrendsView();
+      // Refetch the data after refresh
+      window.location.reload();
+    } catch (error) {
+      console.error('Failed to refresh trends view:', error);
+    }
+  };
+  
+  // Show data info for debugging
   const dataInfo = useMemo(() => {
-    if (trendsLoading) return 'Loading data in optimized batches...';
-    if (trendsError) return 'Error loading data';
+    if (trendsLoading) return 'Loading aggregated trends data from materialized view...';
+    if (trendsError) return 'Error loading trends data';
     
-    // Comprehensive debug logging
-    console.log('=== TRENDS DATA DEBUG ===');
-    console.log('RFQ Data:', {
-      count: rfqData.length,
-      sample: rfqData[0],
-      first5Nsns: rfqData.slice(0, 5).map(r => r.national_stock_number),
-      first5Dates: rfqData.slice(0, 5).map(r => r.quote_issue_date),
-      first5Quantities: rfqData.slice(0, 5).map(r => r.quantity)
-    });
-    
-    console.log('Award Data:', {
-      count: awardData.length,
-      sample: awardData[0],
-      first5Nsns: awardData.slice(0, 5).map(a => a.national_stock_number),
-      first5Dates: awardData.slice(0, 5).map(a => a.awd_date),
-      first5Cages: awardData.slice(0, 5).map(a => a.cage),
-      first5Totals: awardData.slice(0, 5).map(a => a.total),
-      first5Quantities: awardData.slice(0, 5).map(a => a.quantity)
-    });
-    
-    // Test the matching logic
-    if (rfqData.length > 0 && awardData.length > 0) {
-      const testRfq = rfqData[0];
-      const testAward = awardData[0];
-      
-      console.log('=== MATCHING TEST ===');
-      console.log('Test RFQ NSN:', testRfq.national_stock_number);
-      console.log('Test Award NSN:', testAward.national_stock_number);
-      console.log('NSN Match:', testRfq.national_stock_number === testAward.national_stock_number);
-      
-      // Check for partial matches
-      const matchingAwards = awardData.filter(award => 
-        award.national_stock_number === testRfq.national_stock_number
-      );
-      console.log('Matching awards for test RFQ:', matchingAwards.length);
-      
-      if (matchingAwards.length > 0) {
-        console.log('Sample matching award:', matchingAwards[0]);
-      }
+    if (aggregatedData) {
+      return `Period: ${aggregatedData.period} (${aggregatedData.total_rfqs?.toLocaleString()} RFQs, ${aggregatedData.total_awards?.toLocaleString()} awards) - Data from materialized view`;
     }
     
-    return `${rfqData.length.toLocaleString()} RFQ records, ${awardData.length.toLocaleString()} award records`;
-  }, [trendsLoading, trendsError, rfqData.length, awardData.length]);
+    return 'No data available';
+  }, [aggregatedData, trendsLoading, trendsError]);
 
-  // Calculate key metrics
+  // Use aggregated metrics directly from the database view
   const metrics = useMemo(() => {
-    if (!rfqData || !awardData || !Array.isArray(rfqData) || !Array.isArray(awardData)) return null;
-
-    const totalRfqs = rfqData.length;
+    if (!aggregatedData) return null;
     
-    console.log('=== METRICS CALCULATION DEBUG ===');
-    console.log('Total RFQs:', totalRfqs);
-    console.log('Total Awards:', awardData.length);
-    
-    // Calculate contracts with award history
-    const contractsWithAwardHistory = rfqData.filter(rfq => 
-      awardData.some(award => award.national_stock_number === rfq.national_stock_number)
-    ).length;
-    
-    console.log('Contracts with Award History:', contractsWithAwardHistory);
-    
-    // Calculate estimated total value based on award history
-    let estimatedTotalValue = 0;
-    let contractsWithValues = 0;
-    
-    rfqData.forEach((rfq, index) => {
-      // Find matching awards for this NSN
-      const matchingAwards = awardData.filter(award => 
-        award.national_stock_number === rfq.national_stock_number
-      );
-      
-      if (matchingAwards.length > 0) {
-        contractsWithValues++;
-        console.log(`RFQ ${index + 1}: Found ${matchingAwards.length} matching awards for NSN ${rfq.national_stock_number}`);
-        
-        // Calculate average unit cost from past awards
-        const totalAwardValue = matchingAwards.reduce((sum, award) => sum + (award.total || 0), 0);
-        const totalAwardQuantity = matchingAwards.reduce((sum, award) => sum + (award.quantity || 0), 0);
-        
-        console.log(`  Award values: ${matchingAwards.map(a => a.total).join(', ')}`);
-        console.log(`  Award quantities: ${matchingAwards.map(a => a.quantity).join(', ')}`);
-        console.log(`  Total award value: ${totalAwardValue}, Total award quantity: ${totalAwardQuantity}`);
-        
-        if (totalAwardQuantity > 0) {
-          const avgUnitCost = totalAwardValue / totalAwardQuantity;
-          const estimatedValue = avgUnitCost * (rfq.quantity || 0);
-          estimatedTotalValue += estimatedValue;
-          
-          console.log(`  Avg unit cost: ${avgUnitCost}, RFQ quantity: ${rfq.quantity}, Estimated value: ${estimatedValue}`);
-        }
-      }
-    });
-    
-    console.log('Total contracts with values calculated:', contractsWithValues);
-    console.log('Estimated total value:', estimatedTotalValue);
-    
-    const totalQuantity = rfqData.reduce((sum, rfq) => sum + (rfq.quantity || 0), 0);
-    const avgQuantity = totalRfqs > 0 ? totalQuantity / totalRfqs : 0;
-
     return {
-      totalRfqs,
-      contractsWithAwardHistory,
-      estimatedTotalValue: estimatedTotalValue.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }),
-      totalQuantity: totalQuantity.toLocaleString(),
-      avgQuantity: Math.round(avgQuantity).toLocaleString(),
+      totalRfqs: aggregatedData.total_rfqs || 0,
+      contractsWithAwardHistory: aggregatedData.contracts_with_award_history || 0,
+      estimatedTotalValue: (aggregatedData.estimated_total_value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }),
+      totalQuantity: (aggregatedData.total_quantity || 0).toLocaleString(),
+      avgQuantity: Math.round(aggregatedData.avg_quantity || 0).toLocaleString(),
     };
-  }, [rfqData, awardData]);
+  }, [aggregatedData]);
 
-  // Prepare chart data
+  // Use aggregated chart data from the database view
   const chartData = useMemo(() => {
-    if (!rfqData || !awardData || !Array.isArray(rfqData) || !Array.isArray(awardData)) return [];
+    if (!aggregatedData?.daily_rfq_series || !aggregatedData?.daily_award_series) return [];
 
-    // Group by date for time series
+    // Parse the JSON data from the database view
+    const rfqSeries = aggregatedData.daily_rfq_series || [];
+    const awardSeries = aggregatedData.daily_award_series || [];
+    
+    // Create a map to combine RFQ and award data by date
     const dateGroups = new Map();
     
-    rfqData.forEach(rfq => {
-      const date = rfq.quote_issue_date;
-      if (!dateGroups.has(date)) {
-        dateGroups.set(date, { date, rfqs: 0, awards: 0, value: 0 });
-      }
-      dateGroups.get(date).rfqs++;
+    // Add RFQ data
+    rfqSeries.forEach((item: any) => {
+      dateGroups.set(item.date, { 
+        date: item.date, 
+        rfqs: item.rfq_count || 0, 
+        awards: 0, 
+        value: 0 
+      });
     });
-
-    awardData.forEach(award => {
-      const date = award.awd_date;
-      if (!dateGroups.has(date)) {
-        dateGroups.set(date, { date, rfqs: 0, awards: 0, value: 0 });
+    
+    // Add award data
+    awardSeries.forEach((item: any) => {
+      if (dateGroups.has(item.date)) {
+        const group = dateGroups.get(item.date);
+        group.awards = item.award_count || 0;
+        group.value = item.award_value || 0;
+      } else {
+        dateGroups.set(item.date, { 
+          date: item.date, 
+          rfqs: 0, 
+          awards: item.award_count || 0, 
+          value: item.award_value || 0 
+        });
       }
-      const group = dateGroups.get(date);
-      group.awards++;
-      group.value += award.total || 0;
     });
 
     // Convert to array and sort by date
@@ -200,80 +133,43 @@ export const Trends = () => {
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
       .map(item => ({
         ...item,
-        value: Math.round(item.value / 1000), // Convert to thousands for readability
+        value: Math.round((item.value || 0) / 1000), // Convert to thousands for readability
       }));
-  }, [rfqData, awardData]);
+  }, [aggregatedData]);
 
-  // Category breakdown data
+  // Use aggregated category data from the database view
   const categoryData = useMemo(() => {
-    if (!rfqData || !Array.isArray(rfqData)) return [];
+    if (!aggregatedData) return [];
 
     const categories = [
-      { name: 'Weapons', prefixes: ['1005', '1010', '1015', '1020', '1025', '1030', '1035', '1040', '1045', '1055', '1070', '1080', '1090', '1095'] },
-      { name: 'Electrical/Electronic', prefixes: ['5905', '5910', '5915', '5920', '5925', '5930', '5935', '5940', '5945', '5950', '5955', '5960', '5961', '5962', '5963', '5965', '5970', '5975', '5977', '5980', '5985', '5990', '5995', '5996', '5998', '5999'] },
-      { name: 'Textiles', prefixes: ['83', '84', '85', '86', '87', '88', '89'] },
-      { name: 'Fasteners', prefixes: ['51', '52', '53', '54', '55', '56', '57'] },
-      { name: 'Other', prefixes: [] }
+      { name: 'Weapons', count: aggregatedData.weapons_count || 0 },
+      { name: 'Electrical/Electronic', count: aggregatedData.electrical_count || 0 },
+      { name: 'Textiles', count: aggregatedData.textiles_count || 0 },
+      { name: 'Fasteners', count: aggregatedData.fasteners_count || 0 },
+      { name: 'Other', count: aggregatedData.other_count || 0 }
     ];
 
-    return categories.map(category => {
-      const count = category.prefixes.length > 0 
-        ? rfqData.filter(rfq => 
-            category.prefixes.some(prefix => 
-              rfq.national_stock_number?.startsWith(prefix)
-            )
-          ).length
-        : rfqData.filter(rfq => 
-            !categories.slice(0, -1).some(cat => 
-              cat.prefixes.some(prefix => 
-                rfq.national_stock_number?.startsWith(prefix)
-              )
-            )
-          ).length;
-
-      return {
+    return categories
+      .filter(category => category.count > 0)
+      .map(category => ({
         name: category.name,
-        value: count,
+        value: category.count,
         fill: getCategoryColor(category.name),
-      };
-    }).filter(item => item.value > 0);
-  }, [rfqData]);
-
-  // Item name trends data (top items by frequency)
-  const itemTrendsData = useMemo(() => {
-    if (!rfqData || !Array.isArray(rfqData) || rfqData.length === 0) {
-      console.log('No RFQ data available for item trends');
-      return [];
-    }
-
-    console.log('Processing item trends data...');
-    console.log('Sample RFQ items:', rfqData.slice(0, 5).map(r => r.item));
-
-    // Count occurrences of each item name
-    const itemCounts = rfqData.reduce((acc, rfq) => {
-      const itemName = rfq.item?.trim() || 'Unknown Item';
-      if (itemName && itemName !== '') {
-        acc[itemName] = (acc[itemName] || 0) + 1;
-      }
-      return acc;
-    }, {} as Record<string, number>);
-
-    console.log('Item counts:', Object.keys(itemCounts).length, 'unique items');
-    console.log('Top 5 items:', Object.entries(itemCounts).sort(([,a], [,b]) => b - a).slice(0, 5));
-
-    // Get top 10 items by frequency
-    const topItems = Object.entries(itemCounts)
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 10)
-      .map(([itemName, count], index) => ({
-        name: itemName.length > 30 ? itemName.substring(0, 30) + '...' : itemName, // Truncate long names
-        value: count,
-        fill: `hsl(${(index * 137.5) % 360}, 70%, 50%)`, // Better color distribution
       }));
+  }, [aggregatedData]);
 
-    console.log('Final item trends data:', topItems.length, 'items');
-    return topItems;
-  }, [rfqData]);
+  // Use aggregated item trends data from the database view
+  const itemTrendsData = useMemo(() => {
+    if (!aggregatedData?.top_items) return [];
+
+    const topItems = aggregatedData.top_items || [];
+    
+    return topItems.map((item: any, index: number) => ({
+      name: (item.item || 'Unknown Item').length > 30 ? (item.item || 'Unknown Item').substring(0, 30) + '...' : (item.item || 'Unknown Item'),
+      value: item.count || 0,
+      fill: `hsl(${(index * 137.5) % 360}, 70%, 50%)`, // Better color distribution
+    }));
+  }, [aggregatedData]);
 
   // Helper function for category colors
   function getCategoryColor(categoryName: string) {
@@ -374,14 +270,12 @@ export const Trends = () => {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              // Trigger a refresh of the data
-              window.location.reload();
-            }}
+            onClick={handleRefreshTrends}
             className="flex items-center gap-2"
+            title="Refresh materialized view data"
           >
             <Activity className="h-4 w-4" />
-            Refresh
+            Refresh Data
           </Button>
         </div>
       </div>
@@ -578,7 +472,7 @@ export const Trends = () => {
                   </ResponsiveContainer>
                 ) : (
                   <div className="flex items-center justify-center h-full text-muted-foreground">
-                    {rfqData.length > 0 ? 'Processing item data...' : 'No item data available'}
+                    {aggregatedData?.top_items && aggregatedData.top_items.length > 0 ? 'Processing item data...' : 'No item data available'}
                   </div>
                 )}
               </div>
@@ -600,36 +494,21 @@ export const Trends = () => {
           <CardContent>
             <div className="space-y-3">
               {(() => {
-                if (!Array.isArray(awardData) || awardData.length === 0) {
+                                if (!aggregatedData?.top_suppliers || aggregatedData.top_suppliers.length === 0) {
                   return <p className="text-sm text-muted-foreground">No award data available</p>;
                 }
                 
-                // Process CAGE data with better error handling
-                const cageStats = awardData.reduce((acc, award) => {
-                  const cage = award.cage;
-                  if (cage && cage.trim() !== '') {
-                    acc[cage] = (acc[cage] || 0) + 1;
-                  }
-                  return acc;
-                }, {} as Record<string, number>);
+                const topSuppliers = aggregatedData.top_suppliers.slice(0, 5);
                 
-                const topSuppliers = Object.entries(cageStats)
-                  .sort(([,a], [,b]) => b - a)
-                  .slice(0, 5);
-                
-                if (topSuppliers.length === 0) {
-                  return <p className="text-sm text-muted-foreground">No valid CAGE codes found</p>;
-                }
-                
-                return topSuppliers.map(([cage, count], index) => (
-                  <div key={cage} className="flex items-center justify-between">
+                return topSuppliers.map((supplier: any, index: number) => (
+                  <div key={supplier.cage} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary" className="w-6 h-6 p-0 flex items-center justify-center text-xs">
                         {index + 1}
                       </Badge>
-                      <span className="text-sm font-medium font-mono">{cage}</span>
+                      <span className="text-sm font-medium font-mono">{supplier.cage}</span>
                     </div>
-                    <span className="text-sm text-muted-foreground">{count} awards</span>
+                    <span className="text-sm text-muted-foreground">{supplier.award_count} awards</span>
                   </div>
                 ));
               })()}
@@ -650,33 +529,22 @@ export const Trends = () => {
               <div className="flex justify-between">
                 <span className="text-sm">Same Day</span>
                 <span className="text-sm font-medium">
-                  {Array.isArray(awardData) ? awardData.filter(award => 
-                    award.awd_date === award.awd_date
-                  ).length : 0}
+                  {/* TODO: Add same day awards count to aggregated view */}
+                  {0}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm">Within Week</span>
                 <span className="text-sm font-medium">
-                  {Array.isArray(awardData) ? awardData.filter(award => {
-                    const awardDate = new Date(award.awd_date);
-                    const today = new Date();
-                    const diffTime = Math.abs(today.getTime() - awardDate.getTime());
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                    return diffDays <= 7;
-                  }).length : 0}
+                  {/* TODO: Add recent awards count to aggregated view */}
+                  {0}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm">Within Month</span>
                 <span className="text-sm font-medium">
-                  {Array.isArray(awardData) ? awardData.filter(award => {
-                    const awardDate = new Date(award.awd_date);
-                    const today = new Date();
-                    const diffTime = Math.abs(today.getTime() - awardDate.getTime());
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                    return diffDays <= 30;
-                  }).length : 0}
+                  {/* TODO: Add recent awards count to aggregated view */}
+                  {0}
                 </span>
               </div>
             </div>
@@ -696,25 +564,25 @@ export const Trends = () => {
               <div className="flex justify-between">
                 <span className="text-sm">Under $10K</span>
                 <span className="text-sm font-medium">
-                  {Array.isArray(awardData) ? awardData.filter(award => (award.total || 0) < 10000).length : 0}
+                  {aggregatedData?.awards_under_10k || 0}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm">$10K - $100K</span>
                 <span className="text-sm font-medium">
-                  {Array.isArray(awardData) ? awardData.filter(award => (award.total || 0) >= 10000 && (award.total || 0) < 100000).length : 0}
+                  {aggregatedData?.awards_10k_to_100k || 0}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm">$100K - $1M</span>
                 <span className="text-sm font-medium">
-                  {Array.isArray(awardData) ? awardData.filter(award => (award.total || 0) >= 100000 && (award.total || 0) < 1000000).length : 0}
+                  {aggregatedData?.awards_100k_to_1m || 0}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm">Over $1M</span>
                 <span className="text-sm font-medium">
-                  {Array.isArray(awardData) ? awardData.filter(award => (award.total || 0) >= 1000000).length : 0}
+                  {aggregatedData?.awards_over_1m || 0}
                 </span>
               </div>
             </div>
@@ -731,25 +599,26 @@ export const Trends = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-center">
             <div>
                               <div className="text-2xl font-bold text-blue-600">
-                  {Array.isArray(rfqData) ? rfqData.filter(rfq => rfq.quantity > 1000).length : 0}
+                  {/* TODO: Add large volume RFQs count to aggregated view */}
+                  {0}
                 </div>
                               <div className="text-sm text-muted-foreground">Large Volume RFQs (&gt;1K units)</div>
             </div>
             <div>
                               <div className="text-2xl font-bold text-green-600">
-                  {Array.isArray(awardData) ? awardData.filter(award => (award.total || 0) > 100000).length : 0}
+                  {aggregatedData?.awards_100k_to_1m || 0 + (aggregatedData?.awards_over_1m || 0)}
                 </div>
                               <div className="text-sm text-muted-foreground">High Value Awards (&gt;$100K)</div>
             </div>
             <div>
                               <div className="text-2xl font-bold text-purple-600">
-                  {Array.isArray(rfqData) ? new Set(rfqData.map(rfq => rfq.solicitation_number)).size : 0}
+                  {aggregatedData?.unique_solicitations || 0}
                 </div>
               <div className="text-sm text-muted-foreground">Unique Solicitations</div>
             </div>
             <div>
                               <div className="text-2xl font-bold text-orange-600">
-                  {Array.isArray(awardData) ? new Set(awardData.map(award => award.cage)).size : 0}
+                  {aggregatedData?.unique_suppliers || 0}
                 </div>
               <div className="text-sm text-muted-foreground">Active Suppliers</div>
             </div>

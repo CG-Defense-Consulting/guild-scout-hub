@@ -346,6 +346,21 @@ export const useAddToQueue = (userId?: string) => {
   
   return useMutation({
     mutationFn: async (rfqData: any) => {
+      // Check if contract is already in queue
+      const { data: existingContract, error: checkError } = await supabase
+        .from('universal_contract_queue')
+        .select('id')
+        .eq('id', rfqData.id)
+        .single();
+      
+      if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = no rows returned
+        throw checkError;
+      }
+      
+      if (existingContract) {
+        throw new Error(`Contract ${rfqData.solicitation_number} is already in the queue`);
+      }
+
       // Initialize the stage timeline with the first entry
       const initialTimeline: StageTimelineEntry[] = [{
         stage: 'Analysis',
@@ -649,6 +664,52 @@ export const useTrendsData = (startDate: string, endDate: string) => {
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes to avoid refetching
     gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
   });
+};
+
+// Hook for fetching aggregated trends data from the materialized view
+export const useTrendsAggregated = (period: string) => {
+  return useQuery({
+    queryKey: ['trends_aggregated_materialized', period],
+    queryFn: async () => {
+      try {
+        console.log(`Fetching aggregated trends data for period: ${period}`);
+        
+        const { data, error } = await supabase
+          .from('trends_aggregated_materialized')
+          .select('*')
+          .eq('period', period)
+          .single();
+        
+        if (error) throw error;
+        
+        console.log('✅ Aggregated trends data loaded from materialized view:', data);
+        return data;
+      } catch (error) {
+        console.error('Error fetching aggregated trends data:', error);
+        throw error;
+      }
+    },
+    enabled: !!period,
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+  });
+};
+
+// Function to refresh the materialized view (admin use)
+export const refreshTrendsView = async () => {
+  try {
+    console.log('🔄 Refreshing trends materialized view...');
+    
+    const { data, error } = await supabase.rpc('refresh_trends_view');
+    
+    if (error) throw error;
+    
+    console.log('✅ Trends materialized view refreshed successfully');
+    return data;
+  } catch (error) {
+    console.error('❌ Error refreshing trends view:', error);
+    throw error;
+  }
 };
 
 export const useDeleteFromQueue = () => {

@@ -1,4 +1,4 @@
-import { Outlet, useNavigate, NavLink } from 'react-router-dom';
+import { Outlet, NavLink } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { LogOut, Search, BarChart3, Users, Menu, X, TrendingUp } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
@@ -6,12 +6,11 @@ import { useState } from 'react';
 
 export const Layout = () => {
   const { user, userRole, signOut } = useAuth();
-  const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleSignOut = async () => {
     await signOut();
-    navigate('/auth');
+    // Navigation is handled by signOut function
   };
 
   // Navigation items based on user role
