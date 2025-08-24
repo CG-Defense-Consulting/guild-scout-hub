@@ -23,41 +23,51 @@ class SupabaseUploader:
     def _initialize_client(self):
         """Initialize the Supabase client."""
         try:
-            # Load environment variables from parent directory .env file
+            # GitHub Actions compatibility: prioritize environment variables over .env files
+            # This ensures the workflow works in CI/CD environments
+            
+            # First, try to load from .env file if it exists (for local development)
             from pathlib import Path
             import dotenv
             
-            # Look for .env file in parent directories
-            current_file = Path(__file__).resolve()  # Get absolute path
-            project_root = current_file.parent.parent.parent.parent  # Go up from core/uploaders/ to project root
+            current_file = Path(__file__).resolve()
+            project_root = current_file.parent.parent.parent.parent
             env_file = project_root / '.env'
             
+            # Also check etl/ subdirectory (GitHub Actions case)
+            if not env_file.exists():
+                etl_env_file = current_file.parent.parent.parent / '.env'
+                if etl_env_file.exists():
+                    env_file = etl_env_file
+            
+            # Load .env file if it exists (but don't fail if it doesn't)
             if env_file.exists():
                 logger.info(f"Loading environment from: {env_file}")
                 dotenv.load_dotenv(env_file)
                 logger.info("Environment file loaded successfully")
             else:
-                logger.warning(f"Environment file not found at: {env_file}")
+                logger.info("No .env file found, using system environment variables")
             
-            # Get environment variables
+            # Get environment variables (prioritize system env vars over .env file)
             supabase_url = os.getenv('VITE_SUPABASE_URL')
-            logger.info(f"Supabase URL loaded: {'✓' if supabase_url else '✗'}")
-            
-            # Try service role key first (for ETL workflows), then fallback to publishable key
             service_role_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
             publishable_key = os.getenv('VITE_SUPABASE_PUBLISHABLE_KEY')
             
-            logger.info(f"Service role key loaded: {'✓' if service_role_key else '✗'}")
-            logger.info(f"Publishable key loaded: {'✓' if publishable_key else '✗'}")
+            logger.info(f"Environment variables loaded:")
+            logger.info(f"  VITE_SUPABASE_URL: {'✓' if supabase_url else '✗'}")
+            logger.info(f"  SUPABASE_SERVICE_ROLE_KEY: {'✓' if service_role_key else '✗'}")
+            logger.info(f"  VITE_SUPABASE_PUBLISHABLE_KEY: {'✓' if publishable_key else '✗'}")
             
+            # Use service role key first (for ETL workflows), then fallback to publishable key
             supabase_key = service_role_key or publishable_key
             
             if not supabase_url or not supabase_key:
-                logger.error("Missing Supabase environment variables")
+                logger.error("Missing required Supabase environment variables")
+                logger.error("Required: VITE_SUPABASE_URL and either SUPABASE_SERVICE_ROLE_KEY or VITE_SUPABASE_PUBLISHABLE_KEY")
                 raise ValueError("Missing Supabase environment variables")
             
             # Log which key type we're using (without exposing the key)
-            if os.getenv('SUPABASE_SERVICE_ROLE_KEY'):
+            if service_role_key:
                 logger.info("Using Supabase service role key for authenticated access")
             else:
                 logger.info("Using Supabase publishable key for anonymous access")

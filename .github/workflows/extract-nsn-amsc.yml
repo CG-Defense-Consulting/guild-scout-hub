@@ -96,6 +96,27 @@ jobs:
           SUPABASE_BUCKET_NAME=docs
           EOF
           
+          # Export environment variables for Python to access
+          # Use GITHUB_ENV to make them available to subsequent steps
+          echo "VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}" >> $GITHUB_ENV
+          echo "VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}" >> $GITHUB_ENV
+          echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
+          echo "DIBBS_BASE_URL=https://dibbs2.bsm.dla.mil" >> $GITHUB_ENV
+          echo "DIBBS_DOWNLOAD_DIR=./downloads" >> $GITHUB_ENV
+          echo "SELENIUM_HEADLESS=true" >> $GITHUB_ENV
+          echo "SELENIUM_TIMEOUT=30" >> $GITHUB_ENV
+          echo "LOG_LEVEL=INFO" >> $GITHUB_ENV
+          echo "LOG_FILE=./logs/etl.log" >> $GITHUB_ENV
+          echo "SUPABASE_BUCKET_NAME=docs" >> $GITHUB_ENV
+          
+          echo "Environment variables set up completed"
+          
+          # Verify environment variables are set
+          echo "Verifying environment variables:"
+          echo "VITE_SUPABASE_URL: $VITE_SUPABASE_URL"
+          echo "SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:0:10}..."  # Show first 10 chars
+          echo "DIBBS_BASE_URL: $DIBBS_BASE_URL"
+          
       - name: Install Python dependencies
         run: |
           cd etl
@@ -106,6 +127,17 @@ jobs:
         run: |
           cd etl
           mkdir -p downloads logs
+          
+      - name: Test environment variables
+        run: |
+          cd etl
+          echo "Testing environment variable access..."
+          echo "VITE_SUPABASE_URL: $VITE_SUPABASE_URL"
+          echo "SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:0:10}..."
+          echo "DIBBS_BASE_URL: $DIBBS_BASE_URL"
+          
+          # Test Python environment variable access
+          python -c "import os; print('Python env test:', 'VITE_SUPABASE_URL' in os.environ)"
           
       - name: Extract NSN AMSC Code
         id: extract
@@ -133,6 +165,12 @@ jobs:
           echo "Contract ID: $CONTRACT_ID"
           echo "NSN: $NSN"
           echo "Verbose: $VERBOSE"
+          
+          # Debug: Check environment variables available to Python
+          echo "Environment variables available to Python:"
+          echo "VITE_SUPABASE_URL: $VITE_SUPABASE_URL"
+          echo "SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:0:10}..."
+          echo "DIBBS_BASE_URL: $DIBBS_BASE_URL"
           
           # Run the AMSC extraction workflow
           python workflows/adhoc/extract_nsn_amsc.py "$CONTRACT_ID" "$NSN"
