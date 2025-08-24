@@ -385,17 +385,21 @@ class SupabaseUploader:
                 return False
             
             logger.info(f"Updating contract {contract_id} with cde_g: {is_g_level}")
+            logger.info(f"Supabase client initialized: {self.supabase is not None}")
             
             # Update the contract record
+            logger.info(f"Executing database update for contract {contract_id}")
             result = self.supabase.table('universal_contract_queue').update({
                 'cde_g': is_g_level
             }).eq('id', contract_id).execute()
             
             if result.error:
                 logger.error(f"Error updating contract AMSC: {result.error}")
+                logger.error(f"Result data: {result.data}")
                 return False
             
             logger.info(f"Successfully updated contract {contract_id} with cde_g: {is_g_level}")
+            logger.info(f"Update result: {result.data}")
             return True
             
         except Exception as e:

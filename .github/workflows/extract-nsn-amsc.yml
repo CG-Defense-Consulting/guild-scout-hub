@@ -134,8 +134,8 @@ jobs:
           echo "NSN: $NSN"
           echo "Verbose: $VERBOSE"
           
-          # Run the AMSC extraction
-          python -m core.scrapers.dibbs_scraper extract_nsn_amsc "$NSN" "$CONTRACT_ID" "$VERBOSE"
+          # Run the AMSC extraction workflow
+          python workflows/adhoc/extract_nsn_amsc.py "$CONTRACT_ID" "$NSN"
           
       - name: Upload logs
         uses: actions/upload-artifact@v4

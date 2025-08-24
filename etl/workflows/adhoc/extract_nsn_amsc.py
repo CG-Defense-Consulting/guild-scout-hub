@@ -36,10 +36,23 @@ def extract_nsn_amsc(contract_id: str, nsn: str) -> bool:
         logger.info(f"Starting AMSC extraction for contract {contract_id}, NSN: {nsn}")
         
         # Initialize scraper and uploader
+        logger.info("Initializing DibbsScraper...")
         scraper = DibbsScraper()
+        logger.info("DibbsScraper initialized successfully")
+        
+        logger.info("Initializing SupabaseUploader...")
         uploader = SupabaseUploader()
+        logger.info("SupabaseUploader initialized successfully")
+        
+        # Log environment variables (without sensitive values)
+        import os
+        logger.info(f"Environment variables available:")
+        logger.info(f"  VITE_SUPABASE_URL: {'Set' if os.getenv('VITE_SUPABASE_URL') else 'Not set'}")
+        logger.info(f"  SUPABASE_SERVICE_ROLE_KEY: {'Set' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else 'Not set'}")
+        logger.info(f"  DIBBS_BASE_URL: {os.getenv('DIBBS_BASE_URL', 'Not set')}")
         
         # Extract AMSC code from NSN Details page
+        logger.info(f"Calling scraper.extract_nsn_amsc for NSN: {nsn}")
         amsc_code = scraper.extract_nsn_amsc(nsn)
         
         if amsc_code is None:
@@ -50,15 +63,19 @@ def extract_nsn_amsc(contract_id: str, nsn: str) -> bool:
         
         # Determine if AMSC is G
         is_g_level = amsc_code.upper() == 'G'
+        logger.info(f"AMSC code '{amsc_code}' is G-level: {is_g_level}")
         
         # Update the contract queue with the result
+        logger.info(f"Attempting to update contract {contract_id} with cde_g: {is_g_level}")
         success = uploader.update_contract_amsc(contract_id, is_g_level)
         
         if success:
             logger.info(f"Successfully updated contract {contract_id} with cde_g: {is_g_level}")
+            logger.info(f"Database update completed successfully")
             return is_g_level
         else:
             logger.error(f"Failed to update contract {contract_id} with AMSC data")
+            logger.error(f"Database update failed")
             return False
             
     except Exception as e:
@@ -82,7 +99,10 @@ def main():
     logger.info(f"NSN: {args.nsn}")
     
     # Run the workflow
+    logger.info(f"Starting AMSC extraction workflow execution...")
     result = extract_nsn_amsc(args.contract_id, args.nsn)
+    
+    logger.info(f"Workflow execution completed with result: {result}")
     
     if result:
         logger.info(f"AMSC extraction completed successfully. AMSC is G-level: {result}")

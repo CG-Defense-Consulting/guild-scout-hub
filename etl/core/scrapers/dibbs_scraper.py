@@ -359,15 +359,17 @@ class DibbsScraper:
             logger.info(f"Extracting AMSC code for NSN: {nsn}")
             
             # Construct the NSN Details URL
-            nsn_url = f"https://www.dibbs.bsm.dla.mil/RFQ/RFQNsn.aspx?value={nsn}&category=nsn"
+            nsn_url = f"https://dibbs2.bsm.dla.mil/RFQ/RFQNsn.aspx?value={nsn}&category=nsn"
             logger.info(f"Navigating to NSN URL: {nsn_url}")
             
             # Handle consent page and navigate to NSN details
+            logger.info(f"About to handle consent page for URL: {nsn_url}")
             if not self._handle_consent_page(nsn_url):
                 logger.error(f"Failed to handle consent page for NSN: {nsn}")
                 return None
             
             logger.info("Consent page handled successfully, waiting for NSN page to load...")
+            logger.info(f"After consent page, current URL: {self.driver.current_url}")
             
             # Wait for page to load and look for AMSC field
             from selenium.webdriver.support.ui import WebDriverWait
@@ -391,6 +393,11 @@ class DibbsScraper:
             page_title = self.driver.title
             logger.info(f"Page title: {page_title}")
             
+            # Log additional page info
+            logger.info(f"Page source contains 'AMSC:': {'AMSC:' in page_source}")
+            logger.info(f"Page source contains 'AMSC': {'AMSC' in page_source}")
+            logger.info(f"Page source contains 'amsc': {'amsc' in page_source.lower()}")
+            
             # Look for text containing "AMSC:" followed by a letter
             # The AMSC field is usually displayed as "AMSC: G" or similar
             amsc_pattern = r"AMSC:\s*([A-Z])"
@@ -400,6 +407,8 @@ class DibbsScraper:
             import re
             
             logger.info(f"Page source length: {len(page_source)} characters")
+            logger.info(f"Page source preview (first 500 chars): {page_source[:500]}")
+            logger.info(f"Page source preview (last 500 chars): {page_source[-500:]}")
             
             # Log a sample of the page source around where AMSC might be
             amsc_index = page_source.find("AMSC:")
