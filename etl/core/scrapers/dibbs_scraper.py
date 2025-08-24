@@ -371,6 +371,11 @@ class DibbsScraper:
             logger.info("Consent page handled successfully, waiting for NSN page to load...")
             logger.info(f"After consent page, current URL: {self.driver.current_url}")
             
+            # Wait a moment for the page to fully load
+            import time
+            time.sleep(2)
+            logger.info(f"After wait, current URL: {self.driver.current_url}")
+            
             # Wait for page to load and look for AMSC field
             from selenium.webdriver.support.ui import WebDriverWait
             from selenium.webdriver.support import expected_conditions as EC
@@ -389,24 +394,46 @@ class DibbsScraper:
             current_url = self.driver.current_url
             logger.info(f"Current page URL: {current_url}")
             
+            # Check if we're on the expected NSN page
+            if "RFQNsn.aspx" in current_url:
+                logger.info("✅ Successfully navigated to NSN details page")
+            else:
+                logger.warning(f"⚠️ Unexpected page URL: {current_url}")
+                logger.warning("Expected URL to contain 'RFQNsn.aspx'")
+            
             # Get page title for debugging
             page_title = self.driver.title
             logger.info(f"Page title: {page_title}")
             
+            # Get page source first, then log info about it
+            page_source = self.driver.page_source
+            import re
+            
             # Log additional page info
+            logger.info(f"Page source length: {len(page_source)} characters")
             logger.info(f"Page source contains 'AMSC:': {'AMSC:' in page_source}")
             logger.info(f"Page source contains 'AMSC': {'AMSC' in page_source}")
             logger.info(f"Page source contains 'amsc': {'amsc' in page_source.lower()}")
+            
+            # Log a small sample of the page source to see what we're getting
+            if len(page_source) > 0:
+                sample_start = page_source[:200]
+                sample_end = page_source[-200:] if len(page_source) > 200 else ""
+                logger.info(f"Page source sample (start): {sample_start}")
+                logger.info(f"Page source sample (end): {sample_end}")
+                
+                # Check for common HTML elements that should be present
+                logger.info(f"Page contains <html>: {'<html' in page_source.lower()}")
+                logger.info(f"Page contains <body>: {'<body' in page_source.lower()}")
+                logger.info(f"Page contains <title>: {'<title' in page_source.lower()}")
+            else:
+                logger.warning("Page source is empty!")
             
             # Look for text containing "AMSC:" followed by a letter
             # The AMSC field is usually displayed as "AMSC: G" or similar
             amsc_pattern = r"AMSC:\s*([A-Z])"
             
-            # Get page source and search for AMSC pattern
-            page_source = self.driver.page_source
-            import re
-            
-            logger.info(f"Page source length: {len(page_source)} characters")
+            # Log detailed page source preview
             logger.info(f"Page source preview (first 500 chars): {page_source[:500]}")
             logger.info(f"Page source preview (last 500 chars): {page_source[-500:]}")
             
