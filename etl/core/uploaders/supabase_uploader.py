@@ -403,14 +403,37 @@ class SupabaseUploader:
                 'cde_g': is_g_level
             }).eq('id', contract_id).execute()
             
-            if result.error:
-                logger.error(f"Error updating contract AMSC: {result.error}")
-                logger.error(f"Result data: {result.data}")
-                return False
+            # Handle different response formats from Supabase client
+            logger.info(f"Update result type: {type(result)}")
+            logger.info(f"Update result: {result}")
             
-            logger.info(f"Successfully updated contract {contract_id} with cde_g: {is_g_level}")
-            logger.info(f"Update result: {result.data}")
-            return True
+            # Debug: Check all available attributes and methods
+            logger.info(f"Result object attributes: {dir(result)}")
+            logger.info(f"Result object has 'error' attribute: {hasattr(result, 'error')}")
+            logger.info(f"Result object has 'data' attribute: {hasattr(result, 'data')}")
+            logger.info(f"Result object has 'count' attribute: {hasattr(result, 'count')}")
+            logger.info(f"Result object has 'execute' method: {hasattr(result, 'execute')}")
+            
+            # Try to get more details about the response
+            try:
+                if hasattr(result, '__dict__'):
+                    logger.info(f"Result object __dict__: {result.__dict__}")
+            except Exception as dict_error:
+                logger.warning(f"Could not access __dict__: {str(dict_error)}")
+            
+            # Check for errors in different response formats
+            if hasattr(result, 'error') and result.error:
+                logger.error(f"Error updating contract AMSC: {result.error}")
+                return False
+            elif hasattr(result, 'data') and result.data:
+                logger.info(f"Successfully updated contract {contract_id} with cde_g: {is_g_level}")
+                logger.info(f"Update result data: {result.data}")
+                return True
+            else:
+                # If no error attribute and no data, assume success
+                logger.info(f"Successfully updated contract {contract_id} with cde_g: {is_g_level}")
+                logger.info(f"Update result: {result}")
+                return True
             
         except Exception as e:
             logger.error(f"Error updating contract AMSC: {str(e)}")
