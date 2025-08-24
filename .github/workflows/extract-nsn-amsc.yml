@@ -44,20 +44,48 @@ jobs:
           # Install ChromeDriver using a more reliable method
           echo "Installing ChromeDriver..."
           
-          # Get the latest stable ChromeDriver version
-          CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE")
-          echo "Latest ChromeDriver version: $CHROMEDRIVER_VERSION"
+          # First, check what Chrome version we have
+          CHROME_VERSION=$(google-chrome --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          echo "Chrome version: $CHROME_VERSION"
+          
+          # Get the major version number
+          CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d. -f1)
+          echo "Chrome major version: $CHROME_MAJOR_VERSION"
+          
+          # Get the ChromeDriver version that matches our Chrome major version
+          CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_MAJOR_VERSION")
+          echo "ChromeDriver version for Chrome $CHROME_MAJOR_VERSION: $CHROMEDRIVER_VERSION"
+          
+          # If we couldn't get a specific version, fall back to the latest
+          if [ -z "$CHROMEDRIVER_VERSION" ] || [ "$CHROMEDRIVER_VERSION" = "null" ]; then
+            echo "Could not get specific ChromeDriver version, falling back to latest..."
+            CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE")
+            echo "Fallback ChromeDriver version: $CHROMEDRIVER_VERSION"
+          fi
           
           # Download and install ChromeDriver
+          echo "Downloading ChromeDriver version $CHROMEDRIVER_VERSION..."
           wget -N "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
+          
+          if [ ! -f "chromedriver_linux64.zip" ]; then
+            echo "❌ Failed to download ChromeDriver"
+            exit 1
+          fi
+          
           unzip -o chromedriver_linux64.zip
           chmod +x chromedriver
           sudo mv chromedriver /usr/local/bin/
           
           # Verify ChromeDriver installation
+          echo "Verifying ChromeDriver installation..."
           chromedriver --version
           
-          echo "ChromeDriver installation completed successfully"
+          if [ $? -eq 0 ]; then
+            echo "✅ ChromeDriver installation completed successfully"
+          else
+            echo "❌ ChromeDriver installation failed"
+            exit 1
+          fi
           
       - name: Test Chrome setup
         run: |
