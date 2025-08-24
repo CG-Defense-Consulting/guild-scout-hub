@@ -20,8 +20,15 @@ export const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) 
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-lg">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-guild-brand-bg">
+        <div className="text-center">
+          <div className="text-lg mb-2">Loading...</div>
+          <div className="text-sm text-gray-500">Please wait while we check your authentication</div>
+          {/* Mobile-specific loading indicator */}
+          <div className="mt-4">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-guild-brand-fg mx-auto"></div>
+          </div>
+        </div>
       </div>
     );
   }

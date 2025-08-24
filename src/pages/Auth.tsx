@@ -104,8 +104,10 @@ export const Auth = () => {
   // };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-guild-brand-bg p-4">
-      <Card className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-guild-brand-bg p-4 relative">
+
+      
+      <Card className="w-full max-w-md mx-4">
         <CardHeader className="text-center">
           <div className="flex items-center justify-center gap-3 mb-2">
                     <img
