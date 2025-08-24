@@ -59,6 +59,10 @@ jobs:
             
       - name: Install ChromeDriver
         run: |
+          echo "🚀 STARTING CHROMEDRIVER INSTALLATION STEP 🚀"
+          echo "This step should always run and install ChromeDriver 139"
+          echo "=================================================="
+          
           # Always install ChromeDriver to ensure we get the right version
           echo "Installing ChromeDriver..."
           
@@ -70,37 +74,59 @@ jobs:
           CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d. -f1)
           echo "Chrome major version: $CHROME_MAJOR_VERSION"
           
-          # Try to get the ChromeDriver version that matches our Chrome major version
-          echo "Attempting to get ChromeDriver version for Chrome $CHROME_MAJOR_VERSION..."
-          CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_MAJOR_VERSION")
+          # DEBUG: Let's see exactly what we're getting from the API
+          echo "=== DEBUG: ChromeDriver Version Detection ==="
+          echo "Chrome major version: $CHROME_MAJOR_VERSION"
           
-          # Check if we got a valid version (not an XML error)
-          if [[ "$CHROMEDRIVER_VERSION" == *"<?xml"* ]] || [[ "$CHROMEDRIVER_VERSION" == *"Error"* ]] || [ -z "$CHROMEDRIVER_VERSION" ]; then
-            echo "No specific ChromeDriver version found for Chrome $CHROME_MAJOR_VERSION, trying previous versions..."
-            
-            # Try previous major versions (e.g., 138, 137, 136...)
-            for version in $(seq $((CHROME_MAJOR_VERSION-1)) -1 $((CHROME_MAJOR_VERSION-10))); do
-              echo "Trying ChromeDriver for Chrome version $version..."
-              CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$version")
-              
-              if [[ "$CHROMEDRIVER_VERSION" != *"<?xml"* ]] && [[ "$CHROMEDRIVER_VERSION" != *"Error"* ]] && [ -n "$CHROMEDRIVER_VERSION" ]; then
-                echo "✅ Found compatible ChromeDriver version: $CHROMEDRIVER_VERSION (for Chrome $version)"
-                break
-              fi
-            done
-            
-            # If still no version found, fall back to the latest
-            if [[ "$CHROMEDRIVER_VERSION" == *"<?xml"* ]] || [[ "$CHROMEDRIVER_VERSION" == *"Error"* ]] || [ -z "$CHROMEDRIVER_VERSION" ]; then
-              echo "No compatible version found, falling back to latest ChromeDriver..."
-              CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE")
-              echo "Latest available ChromeDriver version: $CHROMEDRIVER_VERSION"
-            fi
+          # HARDCODE ChromeDriver 139 since the API is broken for Chrome 139
+          if [ "$CHROME_MAJOR_VERSION" -ge 139 ]; then
+            echo "Chrome 139+ detected - using hardcoded ChromeDriver 139.0.7258.138"
+            CHROMEDRIVER_VERSION="139.0.7258.138"
+            echo "✅ Using hardcoded ChromeDriver version: $CHROMEDRIVER_VERSION"
           else
-            echo "✅ Found ChromeDriver version for Chrome $CHROME_MAJOR_VERSION: $CHROMEDRIVER_VERSION"
+            echo "Chrome $CHROME_MAJOR_VERSION detected - using API fallback logic..."
+            
+            # Try to get the ChromeDriver version that matches our Chrome major version
+            echo "Attempting to get ChromeDriver version for Chrome $CHROME_MAJOR_VERSION..."
+            CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_MAJOR_VERSION")
+            echo "Raw response for Chrome $CHROME_MAJOR_VERSION: '$CHROMEDRIVER_VERSION'"
+            
+            # Check if we got a valid version (not an XML error)
+            if [[ "$CHROMEDRIVER_VERSION" == *"<?xml"* ]] || [[ "$CHROMEDRIVER_VERSION" == *"Error"* ]] || [ -z "$CHROMEDRIVER_VERSION" ]; then
+              echo "❌ Invalid response for Chrome $CHROME_MAJOR_VERSION, trying previous versions..."
+              
+              # Try previous major versions (e.g., 138, 137, 136...)
+              for version in $(seq $((CHROME_MAJOR_VERSION-1)) -1 $((CHROME_MAJOR_VERSION-10))); do
+                echo "Trying ChromeDriver for Chrome version $version..."
+                CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$version")
+                echo "Raw response for Chrome $version: '$CHROMEDRIVER_VERSION'"
+                
+                if [[ "$CHROMEDRIVER_VERSION" != *"<?xml"* ]] && [[ "$CHROMEDRIVER_VERSION" != *"Error"* ]] && [ -n "$CHROMEDRIVER_VERSION" ]; then
+                  echo "✅ Found compatible ChromeDriver version: $CHROMEDRIVER_VERSION (for Chrome $version)"
+                  break
+                else
+                  echo "❌ Invalid response for Chrome $version: '$CHROMEDRIVER_VERSION'"
+                fi
+              done
+              
+              # If still no version found, fall back to the latest
+              if [[ "$CHROMEDRIVER_VERSION" == *"<?xml"* ]] || [[ "$CHROMEDRIVER_VERSION" == *"Error"* ]] || [ -z "$CHROMEDRIVER_VERSION" ]; then
+                echo "❌ No compatible version found, falling back to latest ChromeDriver..."
+                CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE")
+                echo "Latest available ChromeDriver version: '$CHROMEDRIVER_VERSION'"
+              fi
+            else
+              echo "✅ Found ChromeDriver version for Chrome $CHROME_MAJOR_VERSION: '$CHROMEDRIVER_VERSION'"
+            fi
           fi
+          
+          echo "=== FINAL ChromeDriver Version Selected: '$CHROMEDRIVER_VERSION' ==="
           
           # Download and install ChromeDriver
           echo "Downloading ChromeDriver version $CHROMEDRIVER_VERSION..."
+          echo "Download URL: https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
+          
+          # Check if we're actually downloading the right version
           wget -N "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
           
           if [ ! -f "chromedriver_linux64.zip" ]; then
@@ -112,13 +138,20 @@ jobs:
           
           # Remove any existing ChromeDriver to avoid conflicts
           echo "Removing any existing ChromeDriver..."
+          echo "Removing from /usr/local/bin:"
+          ls -la /usr/local/bin/chromedriver* || echo "No ChromeDriver in /usr/local/bin"
           sudo rm -f /usr/local/bin/chromedriver
+          echo "Removing from /usr/bin:"
+          ls -la /usr/bin/chromedriver* || echo "No ChromeDriver in /usr/bin"
           sudo rm -f /usr/bin/chromedriver
+          echo "Removing from /snap/bin:"
+          ls -la /snap/bin/chromedriver* || echo "No ChromeDriver in /snap/bin"
           sudo rm -f /snap/bin/chromedriver
           
           # Extract and install
           echo "Extracting ChromeDriver..."
           unzip -o chromedriver_linux64.zip
+          echo "Files after extraction:"
           ls -la chromedriver*
           
           echo "Setting permissions and installing..."
