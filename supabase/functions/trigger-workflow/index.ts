@@ -27,7 +27,7 @@ const WORKFLOW_CONFIGS: Record<string, WorkflowConfig> = {
     name: 'Pull Single RFQ PDF',
     workflow_file: 'pull-single-rfq-pdf.yml',
     required_params: ['solicitation_number'],
-    optional_params: ['contract_id']
+    optional_params: ['output_dir', 'verbose']
   },
   'extract_nsn_amsc': {
     name: 'Extract NSN AMSC Code',
@@ -65,9 +65,16 @@ serve(async (req) => {
 
   try {
     // Get environment variables (secrets)
-    const githubToken = Deno.env.get('GITHUB_TOKEN')
+    const githubToken = Deno.env.get('VITE_GITHUB_TOKEN') || Deno.env.get('GITHUB_TOKEN')
     const githubOwner = Deno.env.get('GITHUB_OWNER') || 'CG-Defense-Consulting'
     const githubRepo = Deno.env.get('GITHUB_REPO') || 'guild-scout-hub'
+    
+    // Debug logging (remove in production)
+    console.log('Environment variables loaded:')
+    console.log('GITHUB_TOKEN length:', githubToken ? githubToken.length : 'undefined')
+    console.log('GITHUB_TOKEN preview:', githubToken ? `${githubToken.substring(0, 10)}...` : 'undefined')
+    console.log('GITHUB_OWNER:', githubOwner)
+    console.log('GITHUB_REPO:', githubRepo)
     
     if (!githubToken) {
       throw new Error('GitHub token not configured')
@@ -109,12 +116,12 @@ serve(async (req) => {
     }
 
     // Prepare workflow dispatch payload
+    // Only send the parameters that the workflow actually expects
     const workflowPayload = {
       ref: 'main', // or 'master' depending on your default branch
       inputs: {
-        ...params,
-        triggered_at: new Date().toISOString(),
-        triggered_by: 'supabase_edge_function'
+        ...params
+        // Remove triggered_at and triggered_by as they're not expected by workflows
       }
     }
 

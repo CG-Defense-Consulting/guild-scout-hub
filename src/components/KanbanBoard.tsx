@@ -46,7 +46,6 @@ const RfqPdfButton = ({ solicitationNumber, contractId }: { solicitationNumber: 
           );
           
           if (rfqFile) {
-            console.log(`Found RFQ PDF file: ${rfqFile.name}`);
             // Create a signed URL for the PDF
             const { data: urlData, error: urlError } = await supabase.storage
               .from('docs')
@@ -59,12 +58,7 @@ const RfqPdfButton = ({ solicitationNumber, contractId }: { solicitationNumber: 
 
             setHasPdf(true);
             setPdfUrl(urlData.signedUrl);
-            console.log(`RFQ PDF URL set: ${urlData.signedUrl}`);
-          } else {
-            console.log(`No RFQ PDF found for solicitation ${solicitationNumber} in files:`, files.map(f => f.name));
           }
-        } else {
-          console.log(`No files found with contract-${contractId}- prefix`);
         }
       } catch (error) {
         console.error('Error checking for RFQ PDF:', error);

@@ -116,12 +116,6 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
 
             // Extract the original filename from the encoded storage path
             const originalFileName = extractOriginalFileName(file.name, contract.id);
-            console.log('📄 Document processing:', { 
-              fileName: file.name, 
-              contractId: contract.id, 
-              extractedName: originalFileName,
-              signedUrl: urlData.signedUrl 
-            });
             
             return {
               originalFileName: originalFileName,
