@@ -3,7 +3,6 @@ verify_jwt = false
 import_map = "import_map.json"
 
 [functions.trigger-workflow.environment]
-VITE_GITHUB_TOKEN = ""
 GITHUB_OWNER = "CG-Defense-Consulting"
 GITHUB_REPO = "guild-scout-hub"
 

@@ -65,19 +65,12 @@ serve(async (req) => {
 
   try {
     // Get environment variables (secrets)
-    const githubToken = Deno.env.get('VITE_GITHUB_TOKEN') || Deno.env.get('GITHUB_TOKEN')
+    const githubToken = Deno.env.get('GITHUB_TOKEN')
     const githubOwner = Deno.env.get('GITHUB_OWNER') || 'CG-Defense-Consulting'
     const githubRepo = Deno.env.get('GITHUB_REPO') || 'guild-scout-hub'
     
-    // Debug logging (remove in production)
-    console.log('Environment variables loaded:')
-    console.log('GITHUB_TOKEN length:', githubToken ? githubToken.length : 'undefined')
-    console.log('GITHUB_TOKEN preview:', githubToken ? `${githubToken.substring(0, 10)}...` : 'undefined')
-    console.log('GITHUB_OWNER:', githubOwner)
-    console.log('GITHUB_REPO:', githubRepo)
-    
     if (!githubToken) {
-      throw new Error('GitHub token not configured')
+      throw new Error('GitHub token not configured. Please set GITHUB_TOKEN secret in Supabase.')
     }
 
     // Parse request body

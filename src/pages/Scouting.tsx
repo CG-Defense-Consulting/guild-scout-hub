@@ -24,6 +24,10 @@ const RfqPdfButton = ({ solicitationNumber, nsn }: { solicitationNumber: string;
 
   // Check if RFQ PDF exists in Supabase
   useEffect(() => {
+    // Reset state when solicitation number changes
+    setHasPdf(false);
+    setPdfUrl(null);
+    
     const checkForRfqPdf = async () => {
       try {
         // First check for the new contract-{contractId}- format
@@ -440,6 +444,7 @@ export const Scouting = () => {
             {/* RFQ PDF Link */}
             {row.original.solicitation_number && (
               <RfqPdfButton 
+                key={`rfq-${row.original.solicitation_number}-${row.original.id || row.original.national_stock_number}`}
                 solicitationNumber={row.original.solicitation_number}
                 nsn={row.original.national_stock_number}
               />

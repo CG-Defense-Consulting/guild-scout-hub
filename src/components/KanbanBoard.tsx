@@ -23,6 +23,10 @@ const RfqPdfButton = ({ solicitationNumber, contractId }: { solicitationNumber: 
 
   // Check if RFQ PDF exists in Supabase
   useEffect(() => {
+    // Reset state when solicitation number or contract ID changes
+    setHasPdf(false);
+    setPdfUrl(null);
+    
     const checkForRfqPdf = async () => {
       try {
         // Search for files with contract-{contractId}- prefix
@@ -278,6 +282,7 @@ export const KanbanBoard = ({
                 {/* RFQ PDF Link */}
                 {contract.solicitation_number && (
                   <RfqPdfButton 
+                    key={`rfq-${contract.solicitation_number}-${contract.id}`}
                     solicitationNumber={contract.solicitation_number}
                     contractId={contract.id}
                   />
