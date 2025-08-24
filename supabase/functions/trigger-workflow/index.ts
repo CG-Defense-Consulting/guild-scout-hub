@@ -27,7 +27,7 @@ const WORKFLOW_CONFIGS: Record<string, WorkflowConfig> = {
     name: 'Pull Single RFQ PDF',
     workflow_file: 'pull-single-rfq-pdf.yml',
     required_params: ['solicitation_number'],
-    optional_params: ['contract_id']
+    optional_params: ['output_dir', 'verbose']
   },
   'extract_nsn_amsc': {
     name: 'Extract NSN AMSC Code',
@@ -70,7 +70,7 @@ serve(async (req) => {
     const githubRepo = Deno.env.get('GITHUB_REPO') || 'guild-scout-hub'
     
     if (!githubToken) {
-      throw new Error('GitHub token not configured')
+      throw new Error('GitHub token not configured. Please set GITHUB_TOKEN secret in Supabase.')
     }
 
     // Parse request body
@@ -109,13 +109,20 @@ serve(async (req) => {
     }
 
     // Prepare workflow dispatch payload
+    // Only send the parameters that the workflow actually expects
+    const expectedParams = [...workflowConfig.required_params, ...(workflowConfig.optional_params || [])]
+    const filteredInputs: Record<string, any> = {}
+    
+    // Only include parameters that the workflow expects
+    expectedParams.forEach(param => {
+      if (params[param] !== undefined) {
+        filteredInputs[param] = params[param]
+      }
+    })
+    
     const workflowPayload = {
       ref: 'main', // or 'master' depending on your default branch
-      inputs: {
-        ...params,
-        triggered_at: new Date().toISOString(),
-        triggered_by: 'supabase_edge_function'
-      }
+      inputs: filteredInputs
     }
 
     // Trigger GitHub Actions workflow

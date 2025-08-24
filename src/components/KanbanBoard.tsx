@@ -23,6 +23,10 @@ const RfqPdfButton = ({ solicitationNumber, contractId }: { solicitationNumber: 
 
   // Check if RFQ PDF exists in Supabase
   useEffect(() => {
+    // Reset state when solicitation number or contract ID changes
+    setHasPdf(false);
+    setPdfUrl(null);
+    
     const checkForRfqPdf = async () => {
       try {
         // Search for files with contract-{contractId}- prefix
@@ -46,7 +50,6 @@ const RfqPdfButton = ({ solicitationNumber, contractId }: { solicitationNumber: 
           );
           
           if (rfqFile) {
-            console.log(`Found RFQ PDF file: ${rfqFile.name}`);
             // Create a signed URL for the PDF
             const { data: urlData, error: urlError } = await supabase.storage
               .from('docs')
@@ -59,12 +62,7 @@ const RfqPdfButton = ({ solicitationNumber, contractId }: { solicitationNumber: 
 
             setHasPdf(true);
             setPdfUrl(urlData.signedUrl);
-            console.log(`RFQ PDF URL set: ${urlData.signedUrl}`);
-          } else {
-            console.log(`No RFQ PDF found for solicitation ${solicitationNumber} in files:`, files.map(f => f.name));
           }
-        } else {
-          console.log(`No files found with contract-${contractId}- prefix`);
         }
       } catch (error) {
         console.error('Error checking for RFQ PDF:', error);
@@ -284,6 +282,7 @@ export const KanbanBoard = ({
                 {/* RFQ PDF Link */}
                 {contract.solicitation_number && (
                   <RfqPdfButton 
+                    key={`rfq-${contract.solicitation_number}-${contract.id}`}
                     solicitationNumber={contract.solicitation_number}
                     contractId={contract.id}
                   />

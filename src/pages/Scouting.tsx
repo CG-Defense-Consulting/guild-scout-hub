@@ -24,6 +24,10 @@ const RfqPdfButton = ({ solicitationNumber, nsn }: { solicitationNumber: string;
 
   // Check if RFQ PDF exists in Supabase
   useEffect(() => {
+    // Reset state when solicitation number changes
+    setHasPdf(false);
+    setPdfUrl(null);
+    
     const checkForRfqPdf = async () => {
       try {
         // First check for the new contract-{contractId}- format
@@ -47,7 +51,6 @@ const RfqPdfButton = ({ solicitationNumber, nsn }: { solicitationNumber: string;
           );
           
           if (rfqFile) {
-            console.log(`Found RFQ PDF file: ${rfqFile.name}`);
             // Create a signed URL for the PDF
             const { data: urlData, error: urlError } = await supabase.storage
               .from('docs')
@@ -60,10 +63,7 @@ const RfqPdfButton = ({ solicitationNumber, nsn }: { solicitationNumber: string;
 
             setHasPdf(true);
             setPdfUrl(urlData.signedUrl);
-            console.log(`RFQ PDF URL set: ${urlData.signedUrl}`);
             return;
-          } else {
-            console.log(`No RFQ PDF found for solicitation ${solicitationNumber} in contract- files`);
           }
         }
 
@@ -444,6 +444,7 @@ export const Scouting = () => {
             {/* RFQ PDF Link */}
             {row.original.solicitation_number && (
               <RfqPdfButton 
+                key={`rfq-${row.original.solicitation_number}-${row.original.id || row.original.national_stock_number}`}
                 solicitationNumber={row.original.solicitation_number}
                 nsn={row.original.national_stock_number}
               />

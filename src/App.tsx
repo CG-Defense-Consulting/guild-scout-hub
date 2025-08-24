@@ -28,7 +28,11 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             <Route path="/unauthorized" element={<Unauthorized />} />
             
-            <Route element={<Layout />}>
+            <Route element={
+              <ProtectedRoute allowedRoles={['CGDC', 'PARTNER']}>
+                <Layout />
+              </ProtectedRoute>
+            }>
               <Route 
                 path="/scouting" 
                 element={

@@ -116,12 +116,6 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
 
             // Extract the original filename from the encoded storage path
             const originalFileName = extractOriginalFileName(file.name, contract.id);
-            console.log('📄 Document processing:', { 
-              fileName: file.name, 
-              contractId: contract.id, 
-              extractedName: originalFileName,
-              signedUrl: urlData.signedUrl 
-            });
             
             return {
               originalFileName: originalFileName,
@@ -329,7 +323,7 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
     
     try {
       // Use the new workflow hook to trigger the workflow
-      const result = await triggerPullSingleRfqPdf(contract.solicitation_number, contract.id);
+              const result = await triggerPullSingleRfqPdf(contract.solicitation_number);
       
       if (result) {
         toast({
