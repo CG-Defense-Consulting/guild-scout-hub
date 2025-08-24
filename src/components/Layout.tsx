@@ -110,6 +110,11 @@ export const Layout = () => {
       <main className="flex-1 p-4 md:p-6">
         <Outlet />
       </main>
+      
+      {/* Version number - barely visible */}
+      <div className="fixed bottom-2 right-2 text-xs text-muted-foreground/30 select-none pointer-events-none">
+        v0.0.8a
+      </div>
     </div>
   );
 };
