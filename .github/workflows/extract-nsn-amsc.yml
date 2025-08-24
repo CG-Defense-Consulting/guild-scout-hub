@@ -55,130 +55,10 @@ jobs:
           echo "Chrome version:"
           google-chrome --version || echo "Chrome not found in PATH"
           echo "Chrome binary location:"
-                      which google-chrome || echo "Chrome binary not found"
+          which google-chrome || echo "Chrome binary not found"
             
       - name: Setup ChromeDriver
         uses: ./.github/actions/setup-chromedriver
-
-          if ! command -v chromedriver &> /dev/null; then
-            echo "Installing ChromeDriver..."
-            
-            # First, check what Chrome version we have
-            CHROME_VERSION=$(google-chrome --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-            echo "Chrome version: $CHROME_VERSION"
-            
-            # Get the major version number
-            CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d. -f1)
-            echo "Chrome major version: $CHROME_MAJOR_VERSION"
-            
-            # Try to get the ChromeDriver version that matches our Chrome major version
-            echo "Attempting to get ChromeDriver version for Chrome $CHROME_MAJOR_VERSION..."
-            CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_MAJOR_VERSION")
-            
-            # Check if we got a valid version (not an XML error)
-            if [[ "$CHROMEDRIVER_VERSION" == *"<?xml"* ]] || [[ "$CHROMEDRIVER_VERSION" == *"Error"* ]] || [ -z "$CHROMEDRIVER_VERSION" ]; then
-              echo "No specific ChromeDriver version found for Chrome $CHROME_MAJOR_VERSION, trying previous versions..."
-              
-              # Try previous major versions (e.g., 138, 137, 136...)
-              for version in $(seq $((CHROME_MAJOR_VERSION-1)) -1 $((CHROME_MAJOR_VERSION-10))); do
-                echo "Trying ChromeDriver for Chrome version $version..."
-                CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$version")
-                
-                if [[ "$CHROMEDRIVER_VERSION" != *"<?xml"* ]] && [[ "$CHROMEDRIVER_VERSION" != *"Error"* ]] && [ -n "$CHROMEDRIVER_VERSION" ]; then
-                  echo "✅ Found compatible ChromeDriver version: $CHROMEDRIVER_VERSION (for Chrome $version)"
-                  break
-                fi
-              done
-              
-              # If still no version found, fall back to the latest
-              if [[ "$CHROMEDRIVER_VERSION" == *"<?xml"* ]] || [[ "$CHROMEDRIVER_VERSION" == *"Error"* ]] || [ -z "$CHROMEDRIVER_VERSION" ]; then
-                echo "No compatible version found, falling back to latest ChromeDriver..."
-                CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE")
-                echo "Latest available ChromeDriver version: $CHROMEDRIVER_VERSION"
-              fi
-            else
-              echo "✅ Found ChromeDriver version for Chrome $CHROME_MAJOR_VERSION: $CHROMEDRIVER_VERSION"
-            fi
-          
-          # Download and install ChromeDriver
-          echo "Downloading ChromeDriver version $CHROMEDRIVER_VERSION..."
-          echo "Download URL: https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
-          
-          # Check if we're actually downloading the right version
-          wget -N "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
-          
-          if [ ! -f "chromedriver_linux64.zip" ]; then
-            echo "❌ Failed to download ChromeDriver"
-            exit 1
-          fi
-          
-          echo "Downloaded ChromeDriver zip file, size: $(ls -lh chromedriver_linux64.zip)"
-          
-          # Remove any existing ChromeDriver to avoid conflicts
-          echo "Removing any existing ChromeDriver..."
-          echo "Removing from /usr/local/bin:"
-          ls -la /usr/local/bin/chromedriver* || echo "No ChromeDriver in /usr/local/bin"
-          sudo rm -f /usr/local/bin/chromedriver
-          echo "Removing from /usr/bin:"
-          ls -la /usr/bin/chromedriver* || echo "No ChromeDriver in /usr/bin"
-          sudo rm -f /usr/bin/chromedriver
-          echo "Removing from /snap/bin:"
-          ls -la /snap/bin/chromedriver* || echo "No ChromeDriver in /snap/bin"
-          sudo rm -f /snap/bin/chromedriver
-          
-          # Extract and install
-          echo "Extracting ChromeDriver..."
-          unzip -o chromedriver_linux64.zip
-          echo "Files after extraction:"
-          ls -la chromedriver*
-          
-          echo "Setting permissions and installing..."
-          chmod +x chromedriver
-          echo "Moving ChromeDriver to /usr/local/bin/"
-          sudo mv chromedriver /usr/local/bin/
-          
-          # Verify ChromeDriver installation
-          echo "Verifying ChromeDriver installation..."
-          echo "ChromeDriver files in /usr/local/bin:"
-          ls -la /usr/local/bin/chromedriver* || echo "No ChromeDriver in /usr/local/bin"
-          echo "ChromeDriver files in /usr/bin:"
-          ls -la /usr/bin/chromedriver* || echo "No ChromeDriver in /usr/bin"
-          echo ""
-          echo "ChromeDriver location: $(which chromedriver)"
-          echo "ChromeDriver version:"
-          chromedriver --version
-          
-          if [ $? -eq 0 ]; then
-            echo "✅ ChromeDriver installation completed successfully"
-            echo "ChromeDriver path: $(which chromedriver)"
-            echo "ChromeDriver version: $(chromedriver --version)"
-            
-            # Additional verification - check if it's the version we expect
-            INSTALLED_VERSION=$(chromedriver --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-            echo "Installed ChromeDriver version: $INSTALLED_VERSION"
-            echo "Expected ChromeDriver version: $CHROMEDRIVER_VERSION"
-            
-            if [[ "$INSTALLED_VERSION" == "$CHROMEDRIVER_VERSION" ]]; then
-              echo "✅ Version match confirmed!"
-            else
-              echo "⚠️ Version mismatch, but ChromeDriver is working"
-            fi
-          else
-            echo "❌ ChromeDriver installation failed"
-            echo "Available ChromeDriver files:"
-            ls -la /usr/local/bin/chromedriver* || echo "No ChromeDriver in /usr/local/bin"
-            ls -la /usr/bin/chromedriver* || echo "No ChromeDriver in /usr/bin"
-            echo ""
-            echo "Trying to debug the issue..."
-            echo "Current working directory: $(pwd)"
-            echo "Files in current directory:"
-            ls -la
-            echo ""
-            echo "ChromeDriver binary details:"
-            file chromedriver || echo "chromedriver file not found"
-            echo ""
-            exit 1
-          fi
           
       - name: Test Chrome setup
         run: |
@@ -227,43 +107,6 @@ jobs:
           cd etl
           mkdir -p downloads logs
           
-      - name: Ensure correct ChromeDriver is used
-        run: |
-          echo "=== Ensuring Correct ChromeDriver ==="
-          echo "Current ChromeDriver:"
-          which chromedriver || echo "ChromeDriver not found in PATH"
-          chromedriver --version || echo "ChromeDriver version check failed"
-          echo ""
-          echo "ChromeDriver should be in /usr/local/bin:"
-          ls -la /usr/local/bin/chromedriver* || echo "No ChromeDriver in /usr/local/bin"
-          echo ""
-          echo "Removing any conflicting ChromeDriver installations from other locations..."
-          sudo rm -f /usr/bin/chromedriver
-          sudo rm -f /snap/bin/chromedriver
-          echo ""
-          echo "PATH environment variable:"
-          echo $PATH
-          echo ""
-          echo "Testing ChromeDriver execution from /usr/local/bin:"
-          if [ -f "/usr/local/bin/chromedriver" ]; then
-            /usr/local/bin/chromedriver --version
-            echo ""
-            echo "Making sure ChromeDriver is executable:"
-            sudo chmod +x /usr/local/bin/chromedriver
-            ls -la /usr/local/bin/chromedriver*
-            echo ""
-            echo "Verifying ChromeDriver is accessible:"
-            export PATH="/usr/local/bin:$PATH"
-            which chromedriver || echo "ChromeDriver still not in PATH after export"
-            chromedriver --version || echo "ChromeDriver version check still failing"
-          else
-            echo "❌ ChromeDriver not found in /usr/local/bin - installation may have failed"
-            echo "Checking for ChromeDriver in other locations:"
-            ls -la /usr/bin/chromedriver* || echo "No ChromeDriver in /usr/bin"
-            ls -la /snap/bin/chromedriver* || echo "No ChromeDriver in /snap/bin"
-            exit 1
-          fi
-          
       - name: Extract NSN AMSC Code
         id: extract
         run: |
@@ -277,35 +120,28 @@ jobs:
           
           # Handle both workflow_dispatch and repository_dispatch events
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            # Manual trigger from GitHub UI
             CONTRACT_ID="${{ github.event.inputs.contract_id }}"
             NSN="${{ github.event.inputs.nsn }}"
             VERBOSE="${{ github.event.inputs.verbose }}"
           else
-            # API trigger via repository_dispatch
+            # repository_dispatch event
             CONTRACT_ID="${{ github.event.client_payload.contract_id }}"
             NSN="${{ github.event.client_payload.nsn }}"
-            VERBOSE="false"
+            VERBOSE="${{ github.event.client_payload.verbose }}"
           fi
           
           echo "Contract ID: $CONTRACT_ID"
           echo "NSN: $NSN"
           echo "Verbose: $VERBOSE"
           
-          # Build command with optional verbose flag
-          CMD="python workflows/adhoc/extract_nsn_amsc.py '$CONTRACT_ID' '$NSN'"
-          if [ "$VERBOSE" = "true" ]; then
-            CMD="$CMD --verbose"
-          fi
-          
-          echo "Running: $CMD"
-          eval $CMD
+          # Run the AMSC extraction
+          python -m core.scrapers.dibbs_scraper extract_nsn_amsc "$NSN" "$CONTRACT_ID" "$VERBOSE"
           
       - name: Upload logs
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: amsc-extraction-logs
+          name: nsn-amsc-logs
           path: |
             etl/logs/
             etl/downloads/
