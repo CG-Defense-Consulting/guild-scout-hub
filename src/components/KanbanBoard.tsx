@@ -2,10 +2,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useUpdateQueueStatus, useDeleteFromQueue } from '@/hooks/use-database';
-import { useContractWatcher } from '@/hooks/use-contract-watcher';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { Calendar, Package, Eye, ArrowRight, ArrowLeft, Trash2, ExternalLink, FileText, Database, Play } from 'lucide-react';
+import { Calendar, Package, Eye, ArrowRight, ArrowLeft, Trash2, ExternalLink, FileText, Database } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { getClosedStatusDotColor } from '@/lib/utils';
@@ -116,12 +115,6 @@ export const KanbanBoard = ({
   const updateStatus = useUpdateQueueStatus();
   const deleteFromQueue = useDeleteFromQueue();
   
-  // Initialize contract watcher for manual triggers
-  const { triggerWorkflowsForContract } = useContractWatcher({
-    enabled: false, // Don't auto-start, just use manual triggers
-    autoTrigger: false
-  });
-
   // Define stage transition rules
   const stageTransitions: Record<string, { forward: string[], backward: string[] }> = {
     'Analysis': {
@@ -267,9 +260,6 @@ export const KanbanBoard = ({
                     <span className="text-xs text-muted-foreground">
                       AMSC: {contract.cde_g}
                     </span>
-                    <span className="text-xs text-green-600 font-medium">
-                      ✓ Extracted
-                    </span>
                   </div>
                 )}
                 
@@ -346,35 +336,6 @@ export const KanbanBoard = ({
                     <Database className="w-3 h-3" />
                   </Button>
                 )}
-                
-                {/* Manual Workflow Trigger */}
-                {contract.cde_g === null && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 p-0 flex-shrink-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                    onClick={async (e) => {
-                      e.stopPropagation(); // Prevent card click
-                      try {
-                        await triggerWorkflowsForContract(contract);
-                        toast({
-                          title: 'Workflow Triggered',
-                          description: `Started workflows for contract "${contract.solicitation_number || contract.id}"`,
-                        });
-                      } catch (error) {
-                        toast({
-                          title: 'Workflow Failed',
-                          description: `Failed to start workflows for contract "${contract.solicitation_number || contract.id}"`,
-                          variant: 'destructive',
-                        });
-                      }
-                    }}
-                    title="Trigger Manual Workflow"
-                  >
-                    <Play className="w-3 h-3" />
-                  </Button>
-                )}
-
                 
                 {/* Delete button */}
                 <Button
