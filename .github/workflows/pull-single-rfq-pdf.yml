@@ -118,12 +118,26 @@ jobs:
               exit 1
             fi
             
+            echo "Downloaded ChromeDriver zip file, size: $(ls -lh chromedriver_linux64.zip)"
+            
+            # Remove any existing ChromeDriver to avoid conflicts
+            echo "Removing any existing ChromeDriver..."
+            sudo rm -f /usr/local/bin/chromedriver
+            sudo rm -f /usr/bin/chromedriver
+            
+            # Extract and install
+            echo "Extracting ChromeDriver..."
             unzip chromedriver_linux64.zip
+            ls -la chromedriver*
+            
+            echo "Setting permissions and installing..."
             sudo mv chromedriver /usr/local/bin/
             sudo chmod +x /usr/local/bin/chromedriver
             rm chromedriver_linux64.zip
             
             echo "✅ ChromeDriver installed successfully"
+            echo "ChromeDriver path: $(which chromedriver)"
+            echo "ChromeDriver version: $(chromedriver --version)"
           else
             echo "ChromeDriver already installed:"
             chromedriver --version
@@ -131,10 +145,19 @@ jobs:
           
       - name: Verify ChromeDriver installation
         run: |
+          echo "=== ChromeDriver Installation Verification ==="
           echo "ChromeDriver version:"
           chromedriver --version
+          echo ""
           echo "ChromeDriver location:"
           which chromedriver
+          echo ""
+          echo "ChromeDriver path contents:"
+          ls -la /usr/local/bin/chromedriver* || echo "No ChromeDriver in /usr/local/bin"
+          ls -la /usr/bin/chromedriver* || echo "No ChromeDriver in /usr/bin"
+          echo ""
+          echo "PATH environment:"
+          echo $PATH
           
       - name: Install Python dependencies
         run: |
@@ -168,6 +191,23 @@ jobs:
         run: |
           cd etl
           mkdir -p downloads logs
+          
+      - name: Ensure correct ChromeDriver is used
+        run: |
+          echo "=== Ensuring Correct ChromeDriver ==="
+          echo "Current ChromeDriver:"
+          which chromedriver
+          chromedriver --version
+          echo ""
+          echo "Removing any conflicting ChromeDriver installations..."
+          sudo rm -f /usr/bin/chromedriver
+          echo ""
+          echo "Verifying ChromeDriver installation:"
+          which chromedriver
+          chromedriver --version
+          echo ""
+          echo "ChromeDriver should be in /usr/local/bin:"
+          ls -la /usr/local/bin/chromedriver*
           
       - name: Test Chrome setup
         run: |

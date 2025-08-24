@@ -90,26 +90,59 @@ jobs:
             exit 1
           fi
           
+          echo "Downloaded ChromeDriver zip file, size: $(ls -lh chromedriver_linux64.zip)"
+          
+          # Remove any existing ChromeDriver to avoid conflicts
+          echo "Removing any existing ChromeDriver..."
+          sudo rm -f /usr/local/bin/chromedriver
+          sudo rm -f /usr/bin/chromedriver
+          
+          # Extract and install
+          echo "Extracting ChromeDriver..."
           unzip -o chromedriver_linux64.zip
+          ls -la chromedriver*
+          
+          echo "Setting permissions and installing..."
           chmod +x chromedriver
           sudo mv chromedriver /usr/local/bin/
           
           # Verify ChromeDriver installation
           echo "Verifying ChromeDriver installation..."
+          echo "ChromeDriver location: $(which chromedriver)"
+          echo "ChromeDriver version:"
           chromedriver --version
           
           if [ $? -eq 0 ]; then
             echo "✅ ChromeDriver installation completed successfully"
+            echo "ChromeDriver path: $(which chromedriver)"
+            echo "ChromeDriver version: $(chromedriver --version)"
           else
             echo "❌ ChromeDriver installation failed"
+            echo "Available ChromeDriver files:"
+            ls -la /usr/local/bin/chromedriver* || echo "No ChromeDriver in /usr/local/bin"
+            ls -la /usr/bin/chromedriver* || echo "No ChromeDriver in /usr/bin"
             exit 1
           fi
           
       - name: Test Chrome setup
         run: |
           # Test Chrome and ChromeDriver
+          echo "=== Chrome Setup Verification ==="
+          echo "Chrome version:"
           google-chrome --version
+          echo ""
+          echo "ChromeDriver version:"
           chromedriver --version
+          echo ""
+          echo "ChromeDriver location:"
+          which chromedriver
+          echo ""
+          echo "ChromeDriver path contents:"
+          ls -la /usr/local/bin/chromedriver* || echo "No ChromeDriver in /usr/local/bin"
+          ls -la /usr/bin/chromedriver* || echo "No ChromeDriver in /usr/bin"
+          echo ""
+          echo "PATH environment:"
+          echo $PATH
           
       - name: Set up environment variables
         run: |
@@ -137,6 +170,23 @@ jobs:
         run: |
           cd etl
           mkdir -p downloads logs
+          
+      - name: Ensure correct ChromeDriver is used
+        run: |
+          echo "=== Ensuring Correct ChromeDriver ==="
+          echo "Current ChromeDriver:"
+          which chromedriver
+          chromedriver --version
+          echo ""
+          echo "Removing any conflicting ChromeDriver installations..."
+          sudo rm -f /usr/bin/chromedriver
+          echo ""
+          echo "Verifying ChromeDriver installation:"
+          which chromedriver
+          chromedriver --version
+          echo ""
+          echo "ChromeDriver should be in /usr/local/bin:"
+          ls -la /usr/local/bin/chromedriver*
           
       - name: Extract NSN AMSC Code
         id: extract
