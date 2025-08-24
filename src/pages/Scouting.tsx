@@ -39,17 +39,19 @@ const RfqPdfButton = ({ solicitationNumber, nsn }: { solicitationNumber: string;
 
         if (allFiles && allFiles.length > 0) {
           // Look for files that contain the solicitation number and use the contract- prefix
+          // Check for both .PDF and .pdf extensions
           const rfqFile = allFiles.find(file => 
             file.name.startsWith('contract-') && 
             file.name.includes(solicitationNumber) && 
-            file.name.endsWith('.PDF')
+            file.name.toLowerCase().endsWith('.pdf')
           );
           
           if (rfqFile) {
+            console.log(`Found RFQ PDF file: ${rfqFile.name}`);
             // Create a signed URL for the PDF
             const { data: urlData, error: urlError } = await supabase.storage
               .from('docs')
-              .createSignedUrl(rfqFile.name, 3600); // 1 hour expiry
+              .createSignedUrl(rfqFile.name, 86400); // 24 hour expiry for better UX
 
             if (urlError) {
               console.error('Error creating signed URL:', urlError);
@@ -58,7 +60,10 @@ const RfqPdfButton = ({ solicitationNumber, nsn }: { solicitationNumber: string;
 
             setHasPdf(true);
             setPdfUrl(urlData.signedUrl);
+            console.log(`RFQ PDF URL set: ${urlData.signedUrl}`);
             return;
+          } else {
+            console.log(`No RFQ PDF found for solicitation ${solicitationNumber} in contract- files`);
           }
         }
 
@@ -120,9 +125,13 @@ const RfqPdfButton = ({ solicitationNumber, nsn }: { solicitationNumber: string;
       <Button
         size="sm"
         variant="ghost"
-        className="h-6 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+        className={`h-6 px-2 text-xs ${
+          hasPdf 
+            ? 'text-green-600 hover:text-green-700 hover:bg-green-50' 
+            : 'text-blue-600 hover:text-blue-700 hover:bg-blue-50'
+        }`}
         onClick={handleClick}
-        title={hasPdf ? "View RFQ PDF from Supabase" : "View RFQ PDF from DIBBS"}
+        title={hasPdf ? `View RFQ PDF from Supabase (${solicitationNumber})` : `View RFQ PDF from DIBBS (${solicitationNumber})`}
       >
         <FileText className="w-3 h-3 mr-1" />
         PDF
