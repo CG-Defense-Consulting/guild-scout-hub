@@ -257,6 +257,192 @@ export type Database = {
           solicitation_number?: string | null
         }
         Relationships: []
+      },
+      trends_aggregated: {
+        Row: {
+          period: string
+          start_date: string
+          end_date: string
+          total_rfqs: number
+          total_quantity: number
+          avg_quantity: number
+          unique_nsns: number
+          unique_solicitations: number
+          weapons_count: number
+          electrical_count: number
+          textiles_count: number
+          fasteners_count: number
+          other_count: number
+          total_awards: number
+          total_award_value: number
+          avg_award_value: number
+          unique_award_nsns: number
+          unique_suppliers: number
+          awards_under_10k: number
+          awards_10k_to_100k: number
+          awards_100k_to_1m: number
+          awards_over_1m: number
+          contracts_with_award_history: number
+          estimated_total_value: number
+          daily_rfq_series: Json
+          daily_award_series: Json
+          top_suppliers: Json
+          top_items: Json
+        }
+        Insert: {
+          period?: string
+          start_date?: string
+          end_date?: string
+          total_rfqs?: number
+          total_quantity?: number
+          avg_quantity?: number
+          unique_nsns?: number
+          unique_solicitations?: number
+          weapons_count?: number
+          electrical_count?: number
+          textiles_count?: number
+          fasteners_count?: number
+          other_count?: number
+          total_awards?: number
+          total_award_value?: number
+          avg_award_value?: number
+          unique_award_nsns?: number
+          unique_suppliers?: number
+          awards_under_10k?: number
+          awards_10k_to_100k?: number
+          awards_100k_to_1m?: number
+          awards_over_1m?: number
+          contracts_with_award_history?: number
+          estimated_total_value?: number
+          daily_rfq_series?: Json
+          daily_award_series?: Json
+          top_suppliers?: Json
+          top_items?: Json
+        }
+        Update: {
+          period?: string
+          start_date?: string
+          end_date?: string
+          total_rfqs?: number
+          total_quantity?: number
+          avg_quantity?: number
+          unique_nsns?: number
+          unique_solicitations?: number
+          weapons_count?: number
+          electrical_count?: number
+          textiles_count?: number
+          fasteners_count?: number
+          other_count?: number
+          total_awards?: number
+          total_award_value?: number
+          avg_award_value?: number
+          unique_award_nsns?: number
+          unique_suppliers?: number
+          awards_under_10k?: number
+          awards_10k_to_100k?: number
+          awards_100k_to_1m?: number
+          awards_over_1m?: number
+          contracts_with_award_history?: number
+          estimated_total_value?: number
+          daily_rfq_series?: Json
+          daily_award_series?: Json
+          top_suppliers?: Json
+          top_items?: Json
+        }
+        Relationships: []
+      },
+      trends_aggregated_materialized: {
+        Row: {
+          period: string
+          start_date: string
+          end_date: string
+          total_rfqs: number
+          total_quantity: number
+          avg_quantity: number
+          unique_nsns: number
+          unique_solicitations: number
+          weapons_count: number
+          electrical_count: number
+          textiles_count: number
+          fasteners_count: number
+          other_count: number
+          total_awards: number
+          total_award_value: number
+          avg_award_value: number
+          unique_award_nsns: number
+          unique_suppliers: number
+          awards_under_10k: number
+          awards_10k_to_100k: number
+          awards_100k_to_1m: number
+          awards_over_1m: number
+          contracts_with_award_history: number
+          estimated_total_value: number
+          daily_rfq_series: Json
+          daily_award_series: Json
+          top_suppliers: Json
+          top_items: Json
+        }
+        Insert: {
+          period?: string
+          start_date?: string
+          end_date?: string
+          total_rfqs?: number
+          total_quantity?: number
+          avg_quantity?: number
+          unique_nsns?: number
+          unique_solicitations?: number
+          weapons_count?: number
+          electrical_count?: number
+          textiles_count?: number
+          fasteners_count?: number
+          other_count?: number
+          total_awards?: number
+          total_award_value?: number
+          avg_award_value?: number
+          unique_award_nsns?: number
+          unique_suppliers?: number
+          awards_under_10k?: number
+          awards_10k_to_100k?: number
+          awards_100k_to_1m?: number
+          awards_over_1m?: number
+          contracts_with_award_history?: number
+          estimated_total_value?: number
+          daily_rfq_series?: Json
+          daily_award_series?: Json
+          top_suppliers?: Json
+          top_items?: Json
+        }
+        Update: {
+          period?: string
+          start_date?: string
+          end_date?: string
+          total_rfqs?: number
+          total_quantity?: number
+          avg_quantity?: number
+          unique_nsns?: number
+          unique_solicitations?: number
+          weapons_count?: number
+          electrical_count?: number
+          textiles_count?: number
+          fasteners_count?: number
+          other_count?: number
+          total_awards?: number
+          total_award_value?: number
+          avg_award_value?: number
+          unique_award_nsns?: number
+          unique_suppliers?: number
+          awards_under_10k?: number
+          awards_10k_to_100k?: number
+          awards_100k_to_1m?: number
+          awards_over_1m?: number
+          contracts_with_award_history?: number
+          estimated_total_value?: number
+          daily_rfq_series?: Json
+          daily_award_series?: Json
+          top_suppliers?: Json
+          top_items?: Json
+        }
+        Relationships: []
       }
     }
     Functions: {
@@ -274,6 +460,43 @@ export type Database = {
       get_db_size: {
         Args: { "": Json }
         Returns: number
+      }
+      refresh_trends_view: {
+        Args: Record<PropertyKey, never>
+        Returns: void
+      }
+      get_trends_for_period: {
+        Args: { period_param: string }
+        Returns: {
+          period: string
+          start_date: string
+          end_date: string
+          total_rfqs: number
+          total_quantity: number
+          avg_quantity: number
+          unique_nsns: number
+          unique_solicitations: number
+          weapons_count: number
+          electrical_count: number
+          textiles_count: number
+          fasteners_count: number
+          other_count: number
+          total_awards: number
+          total_award_value: number
+          avg_award_value: number
+          unique_award_nsns: number
+          unique_suppliers: number
+          awards_under_10k: number
+          awards_10k_to_100k: number
+          awards_100k_to_1m: number
+          awards_over_1m: number
+          contracts_with_award_history: number
+          estimated_total_value: number
+          daily_rfq_series: Json
+          daily_award_series: Json
+          top_suppliers: Json
+          top_items: Json
+        }[]
       }
     }
     Enums: {

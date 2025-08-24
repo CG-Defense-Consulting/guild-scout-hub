@@ -196,6 +196,19 @@ export const Scouting = () => {
   const { data: awardData = [] } = useAwardHistory(selectedNsn || undefined);
   const addToQueue = useAddToQueue(user?.id);
   
+  // Get contracts already in queue to show status
+  const { data: queuedContracts = [] } = useQuery({
+    queryKey: ['universal_contract_queue'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('universal_contract_queue')
+        .select('id');
+      if (error) throw error;
+      return data?.map(record => record.id) || [];
+    },
+    enabled: true,
+  });
+  
   // Get all award history NSNs to check availability for each row
   const { data: allAwardHistory } = useQuery({
     queryKey: ['all_award_history'],
@@ -308,12 +321,24 @@ export const Scouting = () => {
         title: 'Added to Queue',
         description: `${rfq.national_stock_number} has been added to the contract queue.`,
       });
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to add to queue. Please try again.',
-        variant: 'destructive',
-      });
+    } catch (error: any) {
+      console.error('Add to queue error:', error);
+      
+      // Handle specific error cases
+      if (error?.message && error.message.includes('already in the queue')) {
+        // Show info notification for already queued contracts
+        toast({
+          title: 'Already in Queue',
+          description: error.message,
+        });
+      } else {
+        // Show error notification for actual failures
+        toast({
+          title: 'Error',
+          description: 'Failed to add to queue. Please try again.',
+          variant: 'destructive',
+        });
+      }
     }
   };
 
