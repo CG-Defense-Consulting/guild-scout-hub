@@ -528,6 +528,27 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="amsc-code">AMSC Code</Label>
+                    <Input 
+                      id="amsc-code" 
+                      defaultValue={contract.cde_g || 'Not extracted'} 
+                      className="font-mono"
+                      disabled
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="closed-status">Solicitation Status</Label>
+                    <Badge 
+                      variant={contract.closed === true ? "destructive" : contract.closed === false ? "secondary" : "outline"} 
+                      className="w-full justify-center py-2"
+                    >
+                      {contract.closed === true ? 'Closed' : contract.closed === false ? 'Open' : 'Unknown'}
+                    </Badge>
+                  </div>
+                </div>
+
                 <div className="pt-4">
                   <p className="text-sm text-muted-foreground">
                     Contract details are read-only. Use the status controls above to manage the contract lifecycle.

@@ -3,7 +3,7 @@
 Extract NSN AMSC Code Workflow
 
 This workflow accesses the NSN Details page for a contract, extracts the AMSC code,
-and updates the universal_contract_queue table with the cde_g boolean field.
+and updates the rfq_index_extract table with the cde_g text field containing the actual AMSC code.
 """
 
 import argparse
@@ -23,18 +23,18 @@ logger = setup_logger(__name__)
 
 def extract_nsn_amsc(contract_id: str, nsn: str) -> tuple:
     """
-    Extract AMSC code from NSN Details page and update contract queue.
+    Extract AMSC code from NSN Details page and update rfq_index_extract.
     
     Args:
         contract_id: The contract ID from universal_contract_queue
         nsn: The National Stock Number to look up
         
     Returns:
-        tuple: (success: bool, is_g_level: bool)
+        tuple: (success: bool, amsc_code: str)
             - success: True if workflow completed successfully, False if failed
-            - is_g_level: True if AMSC is G, False if not G
+            - amsc_code: The actual AMSC code value (e.g., 'G', 'A', 'B', etc.)
             
-    Note: Using tuple instead of tuple[bool, bool] for Python 3.8 compatibility
+    Note: Using tuple instead of tuple[bool, str] for Python 3.8 compatibility
     """
     try:
         logger.info(f"Starting AMSC extraction for contract {contract_id}, NSN: {nsn}")
@@ -61,61 +61,44 @@ def extract_nsn_amsc(contract_id: str, nsn: str) -> tuple:
         
         if amsc_code is None:
             logger.error(f"Failed to extract AMSC code for NSN: {nsn}")
-            return (False, False)
+            return (False, "")
         
         logger.info(f"Extracted AMSC code: {amsc_code}")
         
-        # Determine if AMSC is G
-        is_g_level = amsc_code.upper() == 'G'
-        logger.info(f"AMSC code '{amsc_code}' is G-level: {is_g_level}")
-        
-        # Update the contract queue with the result
-        logger.info(f"Attempting to update contract {contract_id} with cde_g: {is_g_level}")
-        success = uploader.update_contract_amsc(contract_id, is_g_level)
+        # Update the rfq_index_extract table with the actual AMSC code
+        logger.info(f"Attempting to update rfq_index_extract for contract {contract_id} with cde_g: {amsc_code}")
+        success = uploader.update_rfq_amsc(contract_id, amsc_code)
         
         if success:
-            logger.info(f"Successfully updated contract {contract_id} with cde_g: {is_g_level}")
-            logger.info(f"Database update completed successfully")
-            return (True, is_g_level)  # Success, and here's the AMSC level
+            logger.info(f"Successfully updated rfq_index_extract for contract {contract_id} with cde_g: {amsc_code}")
+            return (True, amsc_code)
         else:
-            logger.error(f"Failed to update contract {contract_id} with AMSC data")
-            logger.error(f"Database update failed")
-            return (False, False)  # Failed, no AMSC level
+            logger.error(f"Failed to update rfq_index_extract for contract {contract_id}")
+            return (False, amsc_code)
             
     except Exception as e:
-        logger.error(f"Error in AMSC extraction workflow: {str(e)}")
-        return (False, False)
+        logger.error(f"Error in extract_nsn_amsc: {str(e)}")
+        return (False, "")
 
 def main():
-    """Main entry point for the workflow."""
-    parser = argparse.ArgumentParser(description='Extract NSN AMSC Code')
-    parser.add_argument('contract_id', help='Contract ID from universal_contract_queue')
-    parser.add_argument('nsn', help='National Stock Number to look up')
-    parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
+    """Main entry point for command line usage."""
+    parser = argparse.ArgumentParser(description="Extract AMSC code from NSN Details page")
+    parser.add_argument("contract_id", help="Contract ID from universal_contract_queue")
+    parser.add_argument("nsn", help="National Stock Number to look up")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
     
     args = parser.parse_args()
     
     if args.verbose:
-        logger.setLevel(logging.DEBUG)
+        logging.getLogger().setLevel(logging.DEBUG)
     
-    logger.info(f"Starting NSN AMSC extraction workflow")
-    logger.info(f"Contract ID: {args.contract_id}")
-    logger.info(f"NSN: {args.nsn}")
-    
-    # Run the workflow
-    logger.info(f"Starting AMSC extraction workflow execution...")
     success, amsc_level = extract_nsn_amsc(args.contract_id, args.nsn)
     
-    logger.info(f"Workflow execution completed - Success: {success}, AMSC Level: {amsc_level}")
-    
     if success:
-        logger.info(f"AMSC extraction completed successfully. AMSC is G-level: {amsc_level}")
-        print(f"✅ AMSC extraction completed successfully!")
-        print(f"   AMSC Code Level: {'G' if amsc_level else 'Not G'}")
-        print(f"   Database Updated: Yes")
+        logger.info(f"AMSC extraction completed successfully. AMSC code: {amsc_level}")
+        sys.exit(0)
     else:
         logger.error("AMSC extraction failed")
-        print("❌ AMSC extraction failed")
         sys.exit(1)
 
 if __name__ == "__main__":

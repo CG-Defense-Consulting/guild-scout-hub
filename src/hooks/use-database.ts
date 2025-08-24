@@ -296,7 +296,9 @@ export const useContractQueue = () => {
             desc,
             item,
             quantity,
-            quote_issue_date
+            quote_issue_date,
+            cde_g,
+            closed
           )
         `)
         .order('created_at', { ascending: false });
@@ -318,6 +320,9 @@ export const useContractQueue = () => {
         })(),
         quantity: contract.rfq_index_extract?.quantity,
         quote_issue_date: contract.rfq_index_extract?.quote_issue_date,
+        // Include the new fields
+        cde_g: contract.rfq_index_extract?.cde_g,
+        closed: contract.rfq_index_extract?.closed,
         // Keep the original fields for backward compatibility
         part_number: contract.rfq_index_extract?.national_stock_number,
         long_description: (() => {
@@ -328,13 +333,11 @@ export const useContractQueue = () => {
       })) || [];
       
       // Sort by quote_issue_date descending to prioritize newer RFQ data
-      if (transformedData.length > 0) {
-        transformedData.sort((a, b) => {
-          const dateA = a.quote_issue_date ? new Date(a.quote_issue_date) : new Date(0);
-          const dateB = b.quote_issue_date ? new Date(b.quote_issue_date) : new Date(0);
-          return dateB.getTime() - dateA.getTime(); // Descending order (newest first)
-        });
-      }
+      transformedData.sort((a, b) => {
+        const dateA = a.quote_issue_date ? new Date(a.quote_issue_date).getTime() : 0;
+        const dateB = b.quote_issue_date ? new Date(b.quote_issue_date).getTime() : 0;
+        return dateB - dateA;
+      });
       
       return transformedData;
     },

@@ -240,20 +240,21 @@ export const KanbanBoard = ({
                 </div>
                 
                 {/* AMSC Status Indicator */}
-                {contract.cde_g === true && (
+                {contract.cde_g && (
                   <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                    <div className={`w-2 h-2 rounded-full ${contract.cde_g === 'G' ? 'bg-green-500' : 'bg-blue-500'}`} />
                     <span className="text-xs text-muted-foreground">
-                      AMSC: G-Level
+                      AMSC: {contract.cde_g}
                     </span>
                   </div>
                 )}
                 
-                {contract.cde_g === false && (
+                {/* Closed Status Indicator */}
+                {contract.closed === true && (
                   <div className="flex items-center gap-1">
                     <div className="w-2 h-2 rounded-full bg-red-500" />
                     <span className="text-xs text-muted-foreground">
-                      AMSC: Non-G
+                      Closed
                     </span>
                   </div>
                 )}

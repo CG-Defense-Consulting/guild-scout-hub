@@ -389,6 +389,36 @@ export const Scouting = () => {
       },
     },
     {
+      accessorKey: 'cde_g',
+      header: 'AMSC',
+      cell: ({ row }: any) => {
+        const amscCode = row.original.cde_g;
+        if (!amscCode) {
+          return <span className="text-muted-foreground text-sm">Not extracted</span>;
+        }
+        return (
+          <Badge variant={amscCode === 'G' ? "default" : "secondary"} className="font-mono">
+            {amscCode}
+          </Badge>
+        );
+      },
+    },
+    {
+      accessorKey: 'closed',
+      header: 'Status',
+      cell: ({ row }: any) => {
+        const closed = row.original.closed;
+        if (closed === null || closed === undefined) {
+          return <span className="text-muted-foreground text-sm">Unknown</span>;
+        }
+        return (
+          <Badge variant={closed ? "destructive" : "secondary"}>
+            {closed ? 'Closed' : 'Open'}
+          </Badge>
+        );
+      },
+    },
+    {
       accessorKey: 'quantity',
       header: 'Quantity',
       cell: ({ getValue }: any) => (
