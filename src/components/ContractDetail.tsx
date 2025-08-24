@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useUpdateDestinations, useUpdateMilitaryStandards, useUploadDocument, extractOriginalFileName, StageTimelineEntry } from '@/hooks/use-database';
 import { supabase } from '@/integrations/supabase/client';
 import { useWorkflow } from '@/hooks/use-workflow';
+import { getClosedStatusStyle } from '@/lib/utils';
 import { 
   FileText, 
   Upload, 
@@ -27,6 +28,7 @@ import {
   CheckCircle2,
   Database
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface ContractDetailProps {
   contract: any;
@@ -540,12 +542,20 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                   </div>
                   <div>
                     <Label htmlFor="closed-status">Solicitation Status</Label>
-                    <Badge 
-                      variant={contract.closed === true ? "destructive" : contract.closed === false ? "secondary" : "outline"} 
-                      className="w-full justify-center py-2"
-                    >
-                      {contract.closed === true ? 'Closed' : contract.closed === false ? 'Open' : 'Unknown'}
-                    </Badge>
+                    {(() => {
+                      const { variant, customClasses } = getClosedStatusStyle(contract.closed, contract.current_stage);
+                      return (
+                        <Badge 
+                          variant={variant}
+                          className={cn(
+                            "w-full justify-center py-2",
+                            customClasses
+                          )}
+                        >
+                          {contract.closed === true ? 'Closed' : contract.closed === false ? 'Open' : 'Unknown'}
+                        </Badge>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -800,7 +810,14 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                     variant="outline" 
                     className="justify-start"
                     onClick={() => handlePullRfqPdf()}
-                    disabled={isPullingRfq}
+                    disabled={isPullingRfq || uploadedDocuments.some(doc => 
+                      doc.originalFileName.includes(contract.solicitation_number || '') && 
+                      doc.originalFileName.endsWith('.PDF')
+                    )}
+                    title={uploadedDocuments.some(doc => 
+                      doc.originalFileName.includes(contract.solicitation_number || '') && 
+                      doc.originalFileName.endsWith('.PDF')
+                    ) ? 'RFQ PDF already exists' : 'Pull RFQ PDF from DIBBS'}
                   >
                     <FileText className="w-4 h-4 mr-2" />
                     {isPullingRfq ? 'Pulling RFQ PDF...' : 'Pull this RFQ PDF'}
@@ -810,18 +827,12 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                     variant="outline" 
                     className="justify-start"
                     onClick={() => handleExtractAmsc()}
-                    disabled={isExtractingAmsc}
+                    disabled={isExtractingAmsc || contract.cde_g !== null}
+                    title={contract.cde_g !== null ? 'AMSC code already extracted' : 'Extract AMSC code from NSN details'}
                   >
                     <Database className="w-4 h-4 mr-2" />
                     {isExtractingAmsc ? 'Extracting AMSC...' : 'Extract NSN AMSC Code'}
                   </Button>
-                </div>
-
-                <div className="mt-6 p-4 bg-muted rounded-lg">
-                  <h4 className="font-medium mb-2">Automation Status</h4>
-                  <p className="text-sm text-muted-foreground">
-                    RFQ PDF download and AMSC code extraction workflows are now fully implemented and integrated with GitHub Actions.
-                  </p>
                 </div>
               </CardContent>
             </Card>

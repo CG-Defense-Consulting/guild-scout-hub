@@ -378,6 +378,56 @@ class SupabaseUploader:
     # Note: Database table operations removed to match UI behavior
     # The UI only uses Supabase storage, not database tables for documents
     
+    def update_rfq_closed_status(self, contract_id: str, is_closed: bool) -> bool:
+        """
+        Update the closed field in rfq_index_extract table.
+        
+        Args:
+            contract_id: The contract ID to update
+            is_closed: Whether the solicitation is closed (True) or open (False)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            if not self.supabase:
+                logger.error("Supabase client not initialized")
+                return False
+            
+            logger.info(f"Updating rfq_index_extract {contract_id} with closed: {is_closed}")
+            
+            # Update the rfq_index_extract record
+            result = self.supabase.table('rfq_index_extract').update({
+                'closed': is_closed
+            }).eq('id', contract_id).execute()
+            
+            # Handle different response formats from Supabase client
+            logger.info(f"Update result type: {type(result)}")
+            logger.info(f"Update result: {result}")
+            
+            # Try to get more details about the response
+            try:
+                if hasattr(result, 'error') and result.error:
+                    logger.error(f"Supabase error: {result.error}")
+                    return False
+                elif hasattr(result, 'data'):
+                    logger.info(f"Update successful. Data: {result.data}")
+                    return True
+                elif hasattr(result, 'count'):
+                    logger.info(f"Update successful. Count: {result.count}")
+                    return True
+                else:
+                    logger.warning("Unknown response format, assuming success")
+                    return True
+            except Exception as parse_error:
+                logger.warning(f"Could not parse response: {parse_error}")
+                # If we can't parse the response, assume it succeeded
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error updating rfq_index_extract closed status: {str(e)}")
+            return False
+
     def update_rfq_amsc(self, contract_id: str, amsc_code: str) -> bool:
         """
         Update the cde_g field in rfq_index_extract table with the actual AMSC code.

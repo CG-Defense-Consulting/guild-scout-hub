@@ -113,7 +113,7 @@ export const Layout = () => {
       
       {/* Version number - barely visible */}
       <div className="fixed bottom-2 right-2 text-xs text-muted-foreground/30 select-none pointer-events-none">
-        v0.0.10a
+        v0.0.11a
       </div>
     </div>
   );

@@ -1,20 +1,35 @@
 import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { DataTable } from '@/components/DataTable';
-import { PricingIntelPanel } from '@/components/PricingIntelPanel';
-import { useRfqData, useRfqDataWithSearch, useAwardHistory, useAddToQueue } from '@/hooks/use-database';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { useQuery } from '@tanstack/react-query';
+import { useRfqDataWithSearch, useAwardHistory, useAddToQueue } from '@/hooks/use-database';
 import { supabase } from '@/integrations/supabase/client';
+import { PricingIntelPanel } from '@/components/PricingIntelPanel';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { getClosedStatusStyle } from '@/lib/utils';
+import { useQuery } from '@tanstack/react-query';
+import { 
+  Search, 
+  X, 
+  TrendingUp, 
+  Plus, 
+  Package, 
+  Calendar,
+  Filter,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  FileText,
+  Database,
+  Tag
+} from 'lucide-react';
+import { DataTable } from '@/components/DataTable';
 
-import { Search, Plus, TrendingUp, Calendar, Package, Tag, Filter, X, ChevronDown, ChevronUp, ExternalLink, FileText, Database } from 'lucide-react';
 
 // RFQ PDF Button Component
 const RfqPdfButton = ({ solicitationNumber, nsn }: { solicitationNumber: string; nsn: string }) => {
@@ -411,8 +426,12 @@ export const Scouting = () => {
         if (closed === null || closed === undefined) {
           return <span className="text-muted-foreground text-sm">Unknown</span>;
         }
+        
+        // Use utility function to determine styling
+        const { variant, customClasses } = getClosedStatusStyle(closed, row.original.current_stage);
+        
         return (
-          <Badge variant={closed ? "destructive" : "secondary"}>
+          <Badge variant={variant} className={customClasses}>
             {closed ? 'Closed' : 'Open'}
           </Badge>
         );

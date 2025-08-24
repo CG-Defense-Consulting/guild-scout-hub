@@ -1,13 +1,17 @@
 import { useState } from 'react';
 import { KanbanBoard } from '@/components/KanbanBoard';
 import { ContractDetail } from '@/components/ContractDetail';
+import { ContractWatcherPanel } from '@/components/ContractWatcherPanel';
 import { useContractQueue } from '@/hooks/use-database';
 import { Badge } from '@/components/ui/badge';
-import { BarChart3 } from 'lucide-react';
+import { BarChart3, Settings } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 export const Tracker = () => {
   const { data: contracts = [], isLoading } = useContractQueue();
   const [selectedContract, setSelectedContract] = useState<any>(null);
+  const [showWatcher, setShowWatcher] = useState(false);
 
   const lifecycleColumns = [
     'Analysis',
@@ -36,10 +40,26 @@ export const Tracker = () => {
           </h1>
           <p className="text-muted-foreground">Manage contract lifecycle and progress</p>
         </div>
-        <Badge variant="outline" className="bg-guild-accent-1/10 text-guild-accent-1">
-          {contracts.length} active contracts
-        </Badge>
+        <div className="flex items-center gap-3">
+          <Badge variant="outline" className="bg-guild-accent-1/10 text-guild-accent-1">
+            {contracts.length} active contracts
+          </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowWatcher(!showWatcher)}
+            className="flex items-center gap-2"
+          >
+            <Settings className="w-4 h-4" />
+            {showWatcher ? 'Hide' : 'Show'} Watcher
+          </Button>
+        </div>
       </div>
+
+      {/* Contract Watcher Panel */}
+      {showWatcher && (
+        <ContractWatcherPanel />
+      )}
 
       <KanbanBoard
         columns={lifecycleColumns}
