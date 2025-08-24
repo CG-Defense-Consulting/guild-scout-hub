@@ -1,0 +1,16 @@
+[functions.trigger-workflow]
+verify_jwt = false
+import_map = "import_map.json"
+
+[functions.trigger-workflow.environment]
+GITHUB_TOKEN = ""
+GITHUB_OWNER = "CG-Defense-Consulting"
+GITHUB_REPO = "guild-scout-hub"
+
+[functions.trigger-workflow.cors]
+enabled = true
+origins = ["*"]
+methods = ["GET", "POST", "OPTIONS"]
+allowed_headers = ["authorization", "x-client-info", "apikey", "content-type"]
+exposed_headers = []
+max_age = 86400

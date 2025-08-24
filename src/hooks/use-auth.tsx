@@ -36,7 +36,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // This handles the case where user just logged in or page was reloaded
       setIsSessionFresh(true);
       // Set current time as last activity to start the timer
-      localStorage.setItem('lastActivity', now.toString());
+      try {
+        localStorage.setItem('lastActivity', now.toString());
+      } catch (error) {
+        console.warn('Could not set localStorage on mobile:', error);
+        // On mobile, if localStorage fails, assume session is fresh
+        setIsSessionFresh(true);
+        return;
+      }
       return;
     }
     
@@ -51,7 +58,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Track user activity to keep session fresh
   const updateSessionActivity = () => {
     // Store last activity timestamp in localStorage
-    localStorage.setItem('lastActivity', Date.now().toString());
+    try {
+      localStorage.setItem('lastActivity', Date.now().toString());
+    } catch (error) {
+      console.warn('Could not update localStorage on mobile:', error);
+      // On mobile, if localStorage fails, assume session is fresh
+      setIsSessionFresh(true);
+      return;
+    }
     checkSessionFreshness();
   };
 
@@ -186,12 +200,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // For initial page load, be more lenient with session freshness
         // This prevents immediate redirects on page reload
         const now = Date.now();
-        const lastActivity = localStorage.getItem('lastActivity');
+        let lastActivity;
+        
+        try {
+          lastActivity = localStorage.getItem('lastActivity');
+        } catch (error) {
+          console.warn('Could not read localStorage on mobile:', error);
+          // On mobile, if localStorage fails, assume session is fresh
+          setIsSessionFresh(true);
+          setLoading(false);
+          return;
+        }
         
         if (!lastActivity) {
           // First time or fresh page load - set as fresh
           setIsSessionFresh(true);
-          localStorage.setItem('lastActivity', now.toString());
+          try {
+            localStorage.setItem('lastActivity', now.toString());
+          } catch (error) {
+            console.warn('Could not set localStorage on mobile:', error);
+            // Continue with fresh session assumption
+          }
         } else {
           // Check if session is actually stale
           const lastActivityTime = parseInt(lastActivity);
@@ -250,8 +279,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Clear any stored Supabase session data
     try {
       // Clear the session from localStorage/sessionStorage
-      localStorage.removeItem('sb-cdyfnojqbtgpsriykkbx-auth-token');
-      sessionStorage.removeItem('sb-cdyfnojqbtgpsriykkbx-auth-token');
+      try {
+        localStorage.removeItem('sb-cdyfnojqbtgpsriykkbx-auth-token');
+        sessionStorage.removeItem('sb-cdyfnojqbtgpsriykkbx-auth-token');
+        localStorage.removeItem('lastActivity');
+      } catch (storageError) {
+        console.warn('Could not clear localStorage/sessionStorage on mobile:', storageError);
+      }
       
       // Try to sign out from server, but don't wait for it
       supabase.auth.signOut().catch(error => {
