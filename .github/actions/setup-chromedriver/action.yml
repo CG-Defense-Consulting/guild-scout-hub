@@ -21,10 +21,7 @@ runs:
             echo "✅ Existing ChromeDriver installation is working correctly"
             exit 0
           else
-            echo "❌ Existing ChromeDriver installation is not working, reinstalling..."
-            # Remove existing and reinstall
-            sudo rm -f /usr/local/bin/chromedriver
-            sudo rm -f /usr/bin/chromedriver
+            echo "❌ Existing ChromeDriver installation is not working, will reinstall..."
           fi
         fi
         
@@ -79,10 +76,7 @@ runs:
         
         echo "Downloaded ChromeDriver zip file, size: $(ls -lh chromedriver_linux64.zip)"
         
-        # Remove any existing ChromeDriver to avoid conflicts
-        echo "Removing any existing ChromeDriver..."
-        sudo rm -f /usr/local/bin/chromedriver
-        sudo rm -f /usr/bin/chromedriver
+
         
         # Extract and install
         echo "Extracting ChromeDriver..."
@@ -90,10 +84,17 @@ runs:
         ls -la chromedriver*
         
         echo "Setting permissions and installing..."
+        # Install to /usr/local/bin to avoid conflicts with system ChromeDriver
         sudo mv chromedriver /usr/local/bin/
         sudo chmod +x /usr/local/bin/chromedriver
         rm chromedriver_linux64.zip
         
+        # Update PATH to prioritize /usr/local/bin
+        export PATH="/usr/local/bin:$PATH"
+        
         echo "✅ ChromeDriver installed successfully"
         echo "ChromeDriver path: $(which chromedriver)"
         echo "ChromeDriver version: $(chromedriver --version)"
+        echo "PATH environment: $PATH"
+        echo "All ChromeDriver locations:"
+        which -a chromedriver || echo "No additional ChromeDriver found in PATH"
