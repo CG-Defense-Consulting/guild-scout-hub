@@ -218,34 +218,41 @@ jobs:
         run: |
           echo "=== Ensuring Correct ChromeDriver ==="
           echo "Current ChromeDriver:"
-          which chromedriver
-          chromedriver --version
+          which chromedriver || echo "ChromeDriver not found in PATH"
+          chromedriver --version || echo "ChromeDriver version check failed"
           echo ""
           echo "Removing any conflicting ChromeDriver installations..."
           sudo rm -f /usr/bin/chromedriver
           sudo rm -f /snap/bin/chromedriver
           echo ""
-          echo "Verifying ChromeDriver installation:"
-          which chromedriver
-          chromedriver --version
-          echo ""
           echo "ChromeDriver should be in /usr/local/bin:"
-          ls -la /usr/local/bin/chromedriver*
+          ls -la /usr/local/bin/chromedriver* || echo "No ChromeDriver in /usr/local/bin"
           echo ""
           echo "PATH environment variable:"
           echo $PATH
           echo ""
-          echo "Testing ChromeDriver execution:"
-          /usr/local/bin/chromedriver --version
+          echo "Testing ChromeDriver execution from /usr/local/bin:"
+          /usr/local/bin/chromedriver --version || echo "Direct execution failed"
           echo ""
           echo "Making sure ChromeDriver is executable:"
           sudo chmod +x /usr/local/bin/chromedriver
           ls -la /usr/local/bin/chromedriver*
+          echo ""
+          echo "Verifying ChromeDriver is accessible:"
+          export PATH="/usr/local/bin:$PATH"
+          which chromedriver || echo "ChromeDriver still not in PATH after export"
+          chromedriver --version || echo "ChromeDriver version check still failing"
           
       - name: Extract NSN AMSC Code
         id: extract
         run: |
           cd etl
+          
+          # Ensure ChromeDriver is in PATH for Python execution
+          export PATH="/usr/local/bin:$PATH"
+          echo "PATH for Python execution: $PATH"
+          echo "ChromeDriver location: $(which chromedriver)"
+          echo "ChromeDriver version: $(chromedriver --version)"
           
           # Handle both workflow_dispatch and repository_dispatch events
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
