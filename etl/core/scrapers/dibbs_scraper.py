@@ -474,6 +474,71 @@ class DibbsScraper:
             except Exception as e:
                 logger.warning(f"Legend search failed: {str(e)}")
             
+            # Alternative 4: Look for the specific HTML structure from the user's example
+            # The AMSC code "B" is in a <strong> tag that's a sibling to "AMSC:" text
+            try:
+                logger.info("Searching for specific HTML structure: <legend> with <strong> containing AMSC...")
+                legend_elements = self.driver.find_elements(By.TAG_NAME, "legend")
+                
+                for i, legend in enumerate(legend_elements):
+                    logger.info(f"Examining legend element {i+1}")
+                    
+                    # Look for <strong> tags within this legend
+                    strong_elements = legend.find_elements(By.TAG_NAME, "strong")
+                    logger.info(f"  Found {len(strong_elements)} <strong> elements in legend {i+1}")
+                    
+                    for j, strong in enumerate(strong_elements):
+                        strong_text = strong.text.strip()
+                        logger.info(f"    Strong element {j+1} text: '{strong_text}'")
+                        
+                        # Check if this strong element contains a single letter (potential AMSC)
+                        if strong_text and len(strong_text) == 1 and strong_text.isalpha():
+                            logger.info(f"    Found single letter: '{strong_text}'")
+                            
+                            # Check if this legend contains "AMSC:" text
+                            legend_text = legend.text
+                            if "AMSC:" in legend_text:
+                                logger.info(f"    Legend contains 'AMSC:' text")
+                                
+                                # Verify this is the AMSC code by checking the context
+                                # Look for the text pattern around this strong element
+                                try:
+                                    # Get the parent text to see the full context
+                                    parent = strong.find_element(By.XPATH, "..")
+                                    parent_text = parent.text
+                                    logger.info(f"    Parent text context: '{parent_text}'")
+                                    
+                                    # Check if this looks like an AMSC field
+                                    if "AMSC:" in parent_text and strong_text in parent_text:
+                                        logger.info(f"✓ Found AMSC code '{strong_text}' in <strong> tag within <legend>")
+                                        return strong_text
+                                except Exception as e:
+                                    logger.warning(f"    Error checking parent context: {str(e)}")
+                                    
+            except Exception as e:
+                logger.warning(f"Specific HTML structure search failed: {str(e)}")
+            
+            # Alternative 5: Look for any text that matches the expected pattern
+            try:
+                logger.info("Searching for any text matching AMSC pattern...")
+                # Look for text nodes that contain "AMSC:" followed by a letter
+                amsc_text_elements = self.driver.find_elements(By.XPATH, "//text()[contains(., 'AMSC:')]")
+                logger.info(f"Found {len(amsc_text_elements)} text nodes containing 'AMSC:'")
+                
+                for i, text_element in enumerate(amsc_text_elements):
+                    text_content = text_element.text
+                    logger.info(f"Text node {i+1}: '{text_content}'")
+                    
+                    # Look for the pattern "AMSC: X" where X is a letter
+                    match = re.search(r'AMSC:\s*([A-Z])', text_content)
+                    if match:
+                        amsc_code = match.group(1)
+                        logger.info(f"✓ Found AMSC code in text node: {amsc_code}")
+                        return amsc_code
+                        
+            except Exception as e:
+                logger.warning(f"Text node search failed: {str(e)}")
+            
             # Log the full page source for debugging if AMSC not found
             logger.error(f"AMSC code not found for NSN: {nsn}")
             logger.error("Full page source for debugging:")
