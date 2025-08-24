@@ -129,6 +129,18 @@ class SupabaseUploader:
                 logger.error(f"PDF file not found: {pdf_path}")
                 return None
             
+            # Validate that the file is actually a PDF by checking magic bytes
+            try:
+                with open(pdf_path, 'rb') as f:
+                    header = f.read(4)
+                    if header != b'%PDF':
+                        logger.error(f"File does not contain valid PDF header. Got: {header}")
+                        return None
+                    logger.info("✓ PDF header validation passed")
+            except Exception as e:
+                logger.error(f"Error validating PDF header: {str(e)}")
+                return None
+            
             # Find the contract ID for this solicitation number
             contract_id = self._find_contract_id(solicitation_number)
             if not contract_id:
@@ -138,7 +150,13 @@ class SupabaseUploader:
             # Create unique filename using the same format as UI
             # Format timestamp to match Supabase storage expectations
             timestamp = self._get_timestamp().replace(':', '-').replace('.', '-')
-            file_extension = Path(pdf_path).suffix
+            file_extension = Path(pdf_path).suffix.lower()  # Ensure lowercase extension
+            
+            # Validate that this is actually a PDF file
+            if file_extension not in ['.pdf', '.PDF']:
+                logger.warning(f"File extension '{file_extension}' is not a PDF. Expected .pdf or .PDF")
+                # Force .pdf extension for consistency
+                file_extension = '.pdf'
             
             # Format: contract-{contractId}-{timestamp}-{encodedOriginalName}.{extension}
             # This matches the UI format: contract-{contractId}-{timestamp}-{encodedOriginalName}.{extension}
@@ -151,21 +169,54 @@ class SupabaseUploader:
             logger.info(f"PDF path for upload: {pdf_path}")
             logger.info(f"PDF path type: {type(pdf_path)}")
             
-            # Upload file directly to preserve content type and file extension
+            # Upload file as binary data to preserve content type
             try:
                 logger.info("Getting storage bucket...")
                 bucket = self.supabase.storage.from_('docs')
                 logger.info("✓ Storage bucket obtained")
                 
-                logger.info("Calling upload method...")
-                # Upload the file directly to preserve content type
-                # Note: Supabase Python client doesn't support content-type in options
-                # The file extension should be sufficient for content type detection
-                result = bucket.upload(
-                    unique_filename,
-                    pdf_path  # File path to preserve metadata and extension
-                )
-                logger.info("✓ Upload method called successfully")
+                logger.info("Reading PDF file as binary data...")
+                # Read the file as binary data to preserve content type
+                with open(pdf_path, 'rb') as pdf_file:
+                    pdf_data = pdf_file.read()
+                
+                logger.info(f"PDF data size: {len(pdf_data)} bytes")
+                logger.info(f"PDF data type: {type(pdf_data)}")
+                
+                logger.info("Calling upload method with binary data...")
+                # Try different approaches for content type handling
+                try:
+                    # Method 1: Try with content-type in options
+                    result = bucket.upload(
+                        unique_filename,
+                        pdf_data,  # Binary data instead of file path
+                        {"content-type": "application/pdf"}  # Explicit content type
+                    )
+                    logger.info("✓ Upload method 1 (with content-type) called successfully")
+                except Exception as method1_error:
+                    logger.warning(f"Method 1 failed: {str(method1_error)}")
+                    try:
+                        # Method 2: Try without content-type (rely on file extension)
+                        result = bucket.upload(
+                            unique_filename,
+                            pdf_data  # Binary data without content-type
+                        )
+                        logger.info("✓ Upload method 2 (without content-type) called successfully")
+                    except Exception as method2_error:
+                        logger.error(f"Method 2 also failed: {str(method2_error)}")
+                        # Method 3: Try with file path (fallback)
+                        logger.info("Trying fallback method with file path...")
+                        result = bucket.upload(
+                            unique_filename,
+                            pdf_path  # File path as fallback
+                        )
+                        logger.info("✓ Upload method 3 (file path fallback) called successfully")
+                
+                # If all methods fail, try direct REST API upload with proper headers
+                if not result or (hasattr(result, 'error') and result.error):
+                    logger.info("Trying direct REST API upload with proper headers...")
+                    result = self._upload_via_rest_api(unique_filename, pdf_data, pdf_path)
+                
                 logger.info(f"Upload result type: {type(result)}")
                 logger.info(f"Upload result: {result}")
                 
@@ -186,10 +237,82 @@ class SupabaseUploader:
                 logger.info(f"Upload completed with result: {result}")
             
             logger.info(f"PDF uploaded successfully: {unique_filename}")
+            
+            # Verify the uploaded file's content type
+            try:
+                logger.info("Verifying uploaded file content type...")
+                file_info = bucket.get_public_url(unique_filename)
+                logger.info(f"File public URL: {file_info}")
+                
+                # Try to get file metadata if available
+                try:
+                    file_list = bucket.list('', search=unique_filename)
+                    if file_list and len(file_list) > 0:
+                        for file_item in file_list:
+                            if file_item.name == unique_filename:
+                                logger.info(f"File metadata: {file_item}")
+                                break
+                except Exception as meta_error:
+                    logger.warning(f"Could not get file metadata: {str(meta_error)}")
+                
+            except Exception as verify_error:
+                logger.warning(f"Could not verify file content type: {str(verify_error)}")
+            
             return unique_filename
             
         except Exception as e:
             logger.error(f"Error uploading PDF to storage: {str(e)}")
+            return None
+    
+    def _upload_via_rest_api(self, filename: str, pdf_data: bytes, pdf_path: str) -> any:
+        """
+        Upload PDF via direct REST API call to ensure proper content type.
+        
+        Args:
+            filename: Name for the file in storage
+            pdf_data: Binary PDF data
+            pdf_path: Original file path (fallback)
+            
+        Returns:
+            Upload result or None if failed
+        """
+        try:
+            import requests
+            
+            # Get the storage URL from Supabase client
+            bucket = self.supabase.storage.from_('docs')
+            
+            # Construct the upload URL
+            # This is a workaround for content-type issues with the Python client
+            storage_url = f"{self.supabase.supabase_url}/storage/v1/object/docs/{filename}"
+            
+            # Prepare headers with proper content type
+            headers = {
+                'Authorization': f'Bearer {self.supabase.supabase_key}',
+                'Content-Type': 'application/pdf',
+                'x-upsert': 'true'  # Allow overwriting if file exists
+            }
+            
+            logger.info(f"Uploading via REST API to: {storage_url}")
+            logger.info(f"Headers: {headers}")
+            
+            # Upload the binary data
+            response = requests.post(
+                storage_url,
+                data=pdf_data,
+                headers=headers,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                logger.info("✓ REST API upload successful")
+                return {"success": True, "data": response.json()}
+            else:
+                logger.error(f"REST API upload failed: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"REST API upload error: {str(e)}")
             return None
     
     def upload_rfq_data(self, pdf_path: str, solicitation_number: str) -> bool:
