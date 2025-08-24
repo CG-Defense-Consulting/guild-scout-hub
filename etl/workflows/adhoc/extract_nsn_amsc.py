@@ -21,7 +21,7 @@ from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
-def extract_nsn_amsc(contract_id: str, nsn: str) -> tuple[bool, bool]:
+def extract_nsn_amsc(contract_id: str, nsn: str) -> tuple:
     """
     Extract AMSC code from NSN Details page and update contract queue.
     
@@ -33,6 +33,8 @@ def extract_nsn_amsc(contract_id: str, nsn: str) -> tuple[bool, bool]:
         tuple: (success: bool, is_g_level: bool)
             - success: True if workflow completed successfully, False if failed
             - is_g_level: True if AMSC is G, False if not G
+            
+    Note: Using tuple instead of tuple[bool, bool] for Python 3.8 compatibility
     """
     try:
         logger.info(f"Starting AMSC extraction for contract {contract_id}, NSN: {nsn}")
