@@ -80,15 +80,33 @@ jobs:
             CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d. -f1)
             echo "Chrome major version: $CHROME_MAJOR_VERSION"
             
-            # Get the ChromeDriver version that matches our Chrome major version
+            # Try to get the ChromeDriver version that matches our Chrome major version
+            echo "Attempting to get ChromeDriver version for Chrome $CHROME_MAJOR_VERSION..."
             CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_MAJOR_VERSION")
-            echo "ChromeDriver version for Chrome $CHROME_MAJOR_VERSION: $CHROMEDRIVER_VERSION"
             
-            # If we couldn't get a specific version, fall back to the latest
-            if [ -z "$CHROMEDRIVER_VERSION" ] || [ "$CHROMEDRIVER_VERSION" = "null" ]; then
-              echo "Could not get specific ChromeDriver version, falling back to latest..."
-              CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE")
-              echo "Fallback ChromeDriver version: $CHROMEDRIVER_VERSION"
+            # Check if we got a valid version (not an XML error)
+            if [[ "$CHROMEDRIVER_VERSION" == *"<?xml"* ]] || [[ "$CHROMEDRIVER_VERSION" == *"Error"* ]] || [ -z "$CHROMEDRIVER_VERSION" ]; then
+              echo "No specific ChromeDriver version found for Chrome $CHROME_MAJOR_VERSION, trying previous versions..."
+              
+              # Try previous major versions (e.g., 138, 137, 136...)
+              for version in $(seq $((CHROME_MAJOR_VERSION-1)) -1 $((CHROME_MAJOR_VERSION-10))); do
+                echo "Trying ChromeDriver for Chrome version $version..."
+                CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$version")
+                
+                if [[ "$CHROMEDRIVER_VERSION" != *"<?xml"* ]] && [[ "$CHROMEDRIVER_VERSION" != *"Error"* ]] && [ -n "$CHROMEDRIVER_VERSION" ]; then
+                  echo "✅ Found compatible ChromeDriver version: $CHROMEDRIVER_VERSION (for Chrome $version)"
+                  break
+                fi
+              done
+              
+              # If still no version found, fall back to the latest
+              if [[ "$CHROMEDRIVER_VERSION" == *"<?xml"* ]] || [[ "$CHROMEDRIVER_VERSION" == *"Error"* ]] || [ -z "$CHROMEDRIVER_VERSION" ]; then
+                echo "No compatible version found, falling back to latest ChromeDriver..."
+                CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE")
+                echo "Latest ChromeDriver version: $CHROMEDRIVER_VERSION"
+              fi
+            else
+              echo "✅ Found ChromeDriver version for Chrome $CHROME_MAJOR_VERSION: $CHROMEDRIVER_VERSION"
             fi
             
             # Download and install ChromeDriver
