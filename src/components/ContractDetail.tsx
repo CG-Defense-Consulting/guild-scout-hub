@@ -323,7 +323,7 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
     
     try {
       // Use the new workflow hook to trigger the workflow
-      const result = await triggerPullSingleRfqPdf(contract.solicitation_number, contract.id);
+              const result = await triggerPullSingleRfqPdf(contract.solicitation_number);
       
       if (result) {
         toast({

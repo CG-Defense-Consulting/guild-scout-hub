@@ -110,12 +110,19 @@ serve(async (req) => {
 
     // Prepare workflow dispatch payload
     // Only send the parameters that the workflow actually expects
+    const expectedParams = [...workflowConfig.required_params, ...(workflowConfig.optional_params || [])]
+    const filteredInputs: Record<string, any> = {}
+    
+    // Only include parameters that the workflow expects
+    expectedParams.forEach(param => {
+      if (params[param] !== undefined) {
+        filteredInputs[param] = params[param]
+      }
+    })
+    
     const workflowPayload = {
       ref: 'main', // or 'master' depending on your default branch
-      inputs: {
-        ...params
-        // Remove triggered_at and triggered_by as they're not expected by workflows
-      }
+      inputs: filteredInputs
     }
 
     // Trigger GitHub Actions workflow

@@ -72,11 +72,10 @@ export const useWorkflow = () => {
   };
 
   // Convenience methods for specific workflows
-  const triggerPullSingleRfqPdf = (solicitation_number: string, contract_id?: string) => {
+  const triggerPullSingleRfqPdf = (solicitation_number: string) => {
     return triggerWorkflow({
       workflow_name: 'pull_single_rfq_pdf',
-      solicitation_number,
-      contract_id
+      solicitation_number
     });
   };
 
