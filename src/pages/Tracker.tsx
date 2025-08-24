@@ -58,7 +58,7 @@ export const Tracker = () => {
 
       {/* Contract Watcher Panel */}
       {showWatcher && (
-        <ContractWatcherPanel />
+        <ContractWatcherPanel uploadedDocuments={[]} />
       )}
 
       <KanbanBoard

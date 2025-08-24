@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useContractQueue } from './use-database';
 import { useWorkflow } from './use-workflow';
-import { useToast } from './use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
 interface ContractWatcherConfig {
@@ -9,6 +8,11 @@ interface ContractWatcherConfig {
   checkInterval?: number; // milliseconds
   maxConcurrentWorkflows?: number;
   autoTrigger?: boolean;
+  uploadedDocuments?: Array<{
+    originalFileName: string;
+    storagePath: string;
+    [key: string]: any;
+  }>;
 }
 
 interface WorkflowQueueItem {
@@ -25,12 +29,12 @@ export const useContractWatcher = (config: ContractWatcherConfig = {}) => {
     enabled = true,
     checkInterval = 30000, // 30 seconds
     maxConcurrentWorkflows = 3,
-    autoTrigger = true
+    autoTrigger = true,
+    uploadedDocuments = []
   } = config;
 
   const { data: contracts = [] } = useContractQueue();
   const { triggerPullSingleRfqPdf, triggerExtractNsnAmsc } = useWorkflow();
-  const { toast } = useToast();
   
   const [workflowQueue, setWorkflowQueue] = useState<WorkflowQueueItem[]>([]);
   const [isWatching, setIsWatching] = useState(false);
@@ -77,31 +81,74 @@ export const useContractWatcher = (config: ContractWatcherConfig = {}) => {
       status: 'pending'
     };
 
-    setWorkflowQueue(prev => [...prev, queueItem]);
+    console.log(`   📝 Adding workflow to queue: ${type} for ${contract.solicitation_number}`);
+    console.log(`   📝 Queue item:`, queueItem);
     
-    toast({
-      title: 'Workflow Queued',
-      description: `${type === 'rfq_pdf' ? 'RFQ PDF' : 'NSN AMSC'} workflow queued for ${contract.solicitation_number}`,
+    setWorkflowQueue(prev => {
+      const newQueue = [...prev, queueItem];
+      console.log(`   📝 Previous queue size: ${prev.length}, New queue size: ${newQueue.length}`);
+      console.log(`   📝 New queue items:`, newQueue);
+      return newQueue;
     });
-  }, [toast]);
+    
+    // Use console.log instead of toast to prevent dependency issues
+    console.log(`${type === 'rfq_pdf' ? 'RFQ PDF' : 'NSN AMSC'} workflow queued for ${contract.solicitation_number}`);
+  }, []); // No dependencies needed
 
   // Check for contracts needing workflows and queue them
   const checkAndQueueContracts = useCallback(() => {
-    if (!enabled || !autoTrigger) return;
+    if (!enabled || !autoTrigger) {
+      console.log('⚠️  Contract checking disabled - enabled:', enabled, 'autoTrigger:', autoTrigger);
+      return;
+    }
 
+    console.log('🔍 Checking for contracts needing workflows...');
     const contractsNeedingWorkflows = findContractsNeedingWorkflows();
+    
+    console.log(`   - Found ${contractsNeedingWorkflows.length} contracts needing workflows`);
+    console.log(`   - Current workflow queue state: ${workflowQueue.length} items`);
+    console.log(`   - Current pending workflows: ${workflowQueue.filter(item => item.status === 'pending').length}`);
     
     if (contractsNeedingWorkflows.length === 0) return;
 
-    // Queue RFQ PDF workflow first for contracts without AMSC codes
+    // Process each contract based on workflow requirements
     for (const contract of contractsNeedingWorkflows) {
-      // Check if we already have an RFQ PDF workflow queued for this contract
-      const hasRfqWorkflow = workflowQueue.some(item => 
-        item.contractId === contract.id && item.type === 'rfq_pdf'
+      // Check if we already have ANY workflow queued for this contract (pending or running)
+      const hasAnyWorkflow = workflowQueue.some(item => 
+        item.contractId === contract.id && 
+        (item.status === 'pending' || item.status === 'running')
       );
 
-      if (!hasRfqWorkflow) {
+      if (hasAnyWorkflow) {
+        console.log(`   ⏸️  Contract ${contract.solicitation_number} already has workflow queued`);
+        continue;
+      }
+
+      // Determine which workflows to trigger based on current state
+      const needsAmsc = !contract.cde_g; // AMSC code is null
+      const needsRfqPdf = !uploadedDocuments.some(doc => 
+        doc.originalFileName.includes(contract.solicitation_number || '') && 
+        doc.originalFileName.endsWith('.PDF')
+      ); // RFQ PDF not in bucket
+
+      console.log(`   📊 Contract ${contract.solicitation_number} analysis:`);
+      console.log(`      - Needs AMSC: ${needsAmsc}`);
+      console.log(`      - Needs RFQ PDF: ${needsRfqPdf}`);
+
+      if (needsAmsc && needsRfqPdf) {
+        // AMSC code null and RFQ PDF not in bucket - run both workflows
+        console.log(`   ➕ Queuing RFQ PDF workflow for contract ${contract.solicitation_number}`);
         addToWorkflowQueue(contract, 'rfq_pdf');
+      } else if (needsAmsc && !needsRfqPdf) {
+        // AMSC code null but RFQ PDF in bucket - only run NSN extract
+        console.log(`   ➕ Queuing NSN AMSC workflow for contract ${contract.solicitation_number}`);
+        addToWorkflowQueue(contract, 'nsn_amsc');
+      } else if (!needsAmsc && needsRfqPdf) {
+        // AMSC code not null but RFQ PDF not in bucket - run nothing
+        console.log(`   ⏸️  Contract ${contract.solicitation_number} has AMSC code but no RFQ PDF - no action needed`);
+      } else {
+        // AMSC code not null and RFQ PDF in bucket - run nothing
+        console.log(`   ⏸️  Contract ${contract.solicitation_number} has both AMSC code and RFQ PDF - no action needed`);
       }
     }
 
@@ -111,7 +158,7 @@ export const useContractWatcher = (config: ContractWatcherConfig = {}) => {
       totalContracts: contracts.length,
       contractsWithoutAmsc: contractsNeedingWorkflows.length
     }));
-  }, [enabled, autoTrigger, findContractsNeedingWorkflows, workflowQueue, contracts.length, addToWorkflowQueue]);
+  }, [enabled, autoTrigger, findContractsNeedingWorkflows, workflowQueue, contracts.length, addToWorkflowQueue, uploadedDocuments]);
 
   // Check if we should queue NSN AMSC workflow after RFQ PDF completion
   const checkForNsnAmscWorkflow = useCallback((completedContractId: string) => {
@@ -120,12 +167,13 @@ export const useContractWatcher = (config: ContractWatcherConfig = {}) => {
 
     // Check if contract still needs AMSC code and has NSN data
     if (!contract.cde_g && contract.national_stock_number) {
-      // Check if we don't already have an NSN AMSC workflow queued
-      const hasNsnWorkflow = workflowQueue.some(item => 
-        item.contractId === completedContractId && item.type === 'nsn_amsc'
+      // Check if we don't already have ANY workflow queued for this contract
+      const hasAnyWorkflow = workflowQueue.some(item => 
+        item.contractId === completedContractId && 
+        (item.status === 'pending' || item.status === 'running')
       );
 
-      if (!hasNsnWorkflow) {
+      if (!hasAnyWorkflow) {
         addToWorkflowQueue(contract, 'nsn_amsc');
       }
     }
@@ -133,20 +181,31 @@ export const useContractWatcher = (config: ContractWatcherConfig = {}) => {
 
   // Process workflow queue
   const processWorkflowQueue = useCallback(async () => {
+    console.log('⚙️  Processing workflow queue...');
+    
     const pendingWorkflows = workflowQueue.filter(item => item.status === 'pending');
     const availableSlots = maxConcurrentWorkflows - runningWorkflowsRef.current.size;
 
+    console.log(`   - Pending workflows: ${pendingWorkflows.length}`);
+    console.log(`   - Available slots: ${availableSlots}`);
+    console.log(`   - Currently running: ${runningWorkflowsRef.current.size}`);
+
     if (pendingWorkflows.length === 0 || availableSlots <= 0) {
+      console.log('   ⏸️  No pending workflows or no available slots');
       return;
     }
 
     // Process available workflows
     const workflowsToProcess = pendingWorkflows.slice(0, availableSlots);
+    console.log(`   - Processing ${workflowsToProcess.length} workflows`);
     
     for (const workflow of workflowsToProcess) {
       if (runningWorkflowsRef.current.has(workflow.contractId)) {
+        console.log(`   ⏸️  Workflow for ${workflow.solicitationNumber} already running`);
         continue;
       }
+
+      console.log(`   🚀 Starting ${workflow.type} workflow for ${workflow.solicitationNumber}`);
 
       // Mark as running
       setWorkflowQueue(prev => prev.map(item => 
@@ -159,16 +218,18 @@ export const useContractWatcher = (config: ContractWatcherConfig = {}) => {
         let result = null;
         
         if (workflow.type === 'rfq_pdf') {
-          // Trigger RFQ PDF workflow
+          // Trigger RFQ PDF workflow via Supabase Edge Function
+          console.log(`   📡 Triggering RFQ PDF workflow for ${workflow.solicitationNumber}`);
           result = await triggerPullSingleRfqPdf(workflow.solicitationNumber);
         } else if (workflow.type === 'nsn_amsc') {
-          // Trigger NSN AMSC workflow
+          // Trigger NSN AMSC workflow via Supabase Edge Function
+          console.log(`   📡 Triggering NSN AMSC workflow for contract ${workflow.contractId}`);
           result = await triggerExtractNsnAmsc(workflow.contractId, workflow.nsn);
           
           // If NSN AMSC workflow completed successfully, we might have updated closed status
           // The workflow now automatically updates the closed field based on DIBBS response
           if (result) {
-            console.log(`NSN AMSC workflow completed for contract ${workflow.contractId}`);
+            console.log(`✅ NSN AMSC workflow completed for contract ${workflow.contractId}`);
             // Note: The closed field is automatically updated by the workflow
             // No additional action needed here
           }
@@ -198,14 +259,13 @@ export const useContractWatcher = (config: ContractWatcherConfig = {}) => {
         }));
 
         if (result) {
-          toast({
-            title: 'Workflow Started',
-            description: `${workflow.type === 'rfq_pdf' ? 'RFQ PDF' : 'NSN AMSC'} workflow started for ${workflow.solicitationNumber}`,
-          });
+          console.log(`✅ Workflow Started: ${workflow.type === 'rfq_pdf' ? 'RFQ PDF' : 'NSN AMSC'} workflow started for ${workflow.solicitationNumber}`);
+        } else {
+          console.log(`❌ Workflow Failed to Start: ${workflow.type === 'rfq_pdf' ? 'RFQ PDF' : 'NSN AMSC'} workflow for ${workflow.solicitationNumber}`);
         }
 
       } catch (error) {
-        console.error(`Error processing workflow for contract ${workflow.contractId}:`, error);
+        console.error(`❌ Error processing workflow for contract ${workflow.contractId}:`, error);
         
         // Mark as failed
         setWorkflowQueue(prev => prev.map(item => 
@@ -219,16 +279,12 @@ export const useContractWatcher = (config: ContractWatcherConfig = {}) => {
           workflowsFailed: prev.workflowsFailed + 1
         }));
 
-        toast({
-          title: 'Workflow Failed',
-          description: `Failed to start ${workflow.type === 'rfq_pdf' ? 'RFQ PDF' : 'NSN AMSC'} workflow for ${workflow.solicitationNumber}`,
-          variant: 'destructive',
-        });
+        console.log(`❌ Workflow Failed: Failed to start ${workflow.type === 'rfq_pdf' ? 'RFQ PDF' : 'NSN AMSC'} workflow for ${workflow.solicitationNumber}`);
       } finally {
         runningWorkflowsRef.current.delete(workflow.contractId);
       }
     }
-  }, [workflowQueue, maxConcurrentWorkflows, triggerPullSingleRfqPdf, triggerExtractNsnAmsc, toast, checkForNsnAmscWorkflow]);
+  }, [workflowQueue, maxConcurrentWorkflows, triggerPullSingleRfqPdf, triggerExtractNsnAmsc, checkForNsnAmscWorkflow]);
 
   // Start watching
   const startWatching = useCallback(() => {
@@ -239,16 +295,27 @@ export const useContractWatcher = (config: ContractWatcherConfig = {}) => {
     // Initial check
     checkAndQueueContracts();
     
-    // Set up interval
+    // Set up interval for checking contracts and processing queue
     intervalRef.current = setInterval(() => {
+      console.log('🔄 Contract Watcher Interval Running...');
+      console.log(`   - Current queue size: ${workflowQueue.length}`);
+      console.log(`   - Pending workflows: ${workflowQueue.filter(item => item.status === 'pending').length}`);
+      console.log(`   - Running workflows: ${workflowQueue.filter(item => item.status === 'running').length}`);
+      
       checkAndQueueContracts();
-      processWorkflowQueue();
+      
+      // Add a small delay to ensure state updates are processed before processing the queue
+      setTimeout(() => {
+        console.log('⏳ Processing workflow queue after delay...');
+        console.log(`   - Queue state after delay: ${workflowQueue.length} items`);
+        console.log(`   - Pending after delay: ${workflowQueue.filter(item => item.status === 'pending').length}`);
+        processWorkflowQueue();
+        cleanupCompletedWorkflows(); // Clean up completed workflows
+      }, 100); // 100ms delay
     }, checkInterval);
 
-    toast({
-      title: 'Contract Watcher Started',
-      description: 'Automatically monitoring contracts for missing AMSC codes',
-    });
+    // Use console.log instead of toast to prevent dependency issues
+    console.log('Contract Watcher Started - Automatically monitoring contracts for missing AMSC codes');
   }, [isWatching, checkInterval]); // Remove function dependencies that cause re-renders
 
   // Stop watching
@@ -262,30 +329,20 @@ export const useContractWatcher = (config: ContractWatcherConfig = {}) => {
       intervalRef.current = null;
     }
 
-    toast({
-      title: 'Contract Watcher Stopped',
-      description: 'No longer monitoring contracts automatically',
-    });
+    // Use console.log instead of toast to prevent dependency issues
+    console.log('Contract Watcher Stopped - No longer monitoring contracts automatically');
   }, [isWatching]); // Remove toast dependency that causes re-renders
 
   // Manually trigger workflows for a specific contract
   const triggerWorkflowsForContract = useCallback(async (contract: any) => {
     if (!contract.solicitation_number || !contract.national_stock_number) {
-      toast({
-        title: 'Missing Data',
-        description: 'Contract is missing solicitation number or NSN',
-        variant: 'destructive',
-      });
+      console.log('Missing Data: Contract is missing solicitation number or NSN');
       return false;
     }
 
     // Check if contract already has AMSC code
     if (contract.cde_g) {
-      toast({
-        title: 'Workflow Not Needed',
-        description: 'Contract already has AMSC code extracted',
-        variant: 'default',
-      });
+      console.log('Workflow Not Needed: Contract already has AMSC code extracted');
       return false;
     }
 
@@ -296,11 +353,7 @@ export const useContractWatcher = (config: ContractWatcherConfig = {}) => {
     );
 
     if (hasWorkflows) {
-      toast({
-        title: 'Workflow Already Queued',
-        description: 'Workflows are already queued for this contract',
-        variant: 'default',
-      });
+      console.log('Workflow Already Queued: Workflows are already queued for this contract');
       return false;
     }
 
@@ -317,35 +370,66 @@ export const useContractWatcher = (config: ContractWatcherConfig = {}) => {
     ));
   }, []); // No dependencies needed
 
+  // Clean up completed/failed workflows and update stats
+  const cleanupCompletedWorkflows = useCallback(() => {
+    setWorkflowQueue(prev => {
+      const newQueue = prev.filter(item => 
+        item.status === 'pending' || item.status === 'running'
+      );
+      
+      // Count completed and failed workflows for stats
+      const completedCount = prev.filter(item => item.status === 'completed').length;
+      const failedCount = prev.filter(item => item.status === 'failed').length;
+      
+      // Update stats
+      setStats(prev => ({
+        ...prev,
+        workflowsCompleted: prev.workflowsCompleted + completedCount,
+        workflowsFailed: prev.workflowsFailed + failedCount
+      }));
+      
+      return newQueue;
+    });
+  }, []);
+
+  // Clear entire workflow queue (for debugging)
+  const clearWorkflowQueue = useCallback(() => {
+    setWorkflowQueue([]);
+    setStats(prev => ({
+      ...prev,
+      workflowsTriggered: 0,
+      workflowsCompleted: 0,
+      workflowsFailed: 0
+    }));
+  }, []);
+
   // Refresh contract data and clean up completed workflows
   const refreshContractData = useCallback(async () => {
     try {
       // Clean up workflows for contracts that now have AMSC codes
-      setWorkflowQueue(prev => prev.filter(item => {
-        const contract = contracts.find(c => c.id === item.contractId);
-        if (!contract) return false; // Contract no longer exists
+      setWorkflowQueue(prev => {
+        const newQueue = prev.filter(item => {
+          const contract = contracts.find(c => c.id === item.contractId);
+          if (!contract) return false; // Contract no longer exists
+          
+          // Remove workflows for contracts that now have AMSC codes
+          if (contract.cde_g) return false;
+          
+          // Keep pending and running workflows
+          if (item.status === 'pending' || item.status === 'running') return true;
+          
+          // Remove completed and failed workflows
+          return false;
+        });
         
-        // Remove workflows for contracts that now have AMSC codes
-        if (contract.cde_g) return false;
-        
-        // Keep pending and running workflows
-        if (item.status === 'pending' || item.status === 'running') return true;
-        
-        // Remove completed and failed workflows
-        return false;
-      }));
-      
-      toast({
-        title: 'Contract Data Refreshed',
-        description: 'Updated workflow queue based on current contract status',
+        return newQueue;
       });
+      
+      // Use console.log instead of toast to prevent dependency issues
+      console.log('Contract data refreshed - workflow queue updated');
+      
     } catch (error) {
       console.error('Error refreshing contract data:', error);
-      toast({
-        title: 'Refresh Failed',
-        description: 'Failed to refresh contract data',
-        variant: 'destructive',
-      });
     }
   }, [contracts]); // Keep only contracts as dependency
 
@@ -370,31 +454,41 @@ export const useContractWatcher = (config: ContractWatcherConfig = {}) => {
 
   // Auto-cleanup workflows when contracts get AMSC codes
   useEffect(() => {
-    const contractsWithAmsc = contracts.filter(contract => contract.cde_g);
-    const contractsWithoutAmsc = contracts.filter(contract => !contract.cde_g);
+    // Only run this effect when contracts change, not on every render
+    if (contracts.length === 0) return;
     
-    // Update stats
+    // Update stats without triggering workflow queue changes
     setStats(prev => ({
       ...prev,
       totalContracts: contracts.length,
-      contractsWithoutAmsc: contractsWithoutAmsc.length
+      contractsWithoutAmsc: contracts.filter(contract => !contract.cde_g).length
     }));
+  }, [contracts.length]); // Only depend on contracts.length, not the entire contracts array
+
+  // Separate effect for workflow queue cleanup to prevent infinite loops
+  useEffect(() => {
+    // Only run this effect when contracts change, not on every render
+    if (contracts.length === 0) return;
     
     // Clean up completed workflows for contracts that now have AMSC codes
-    setWorkflowQueue(prev => prev.filter(item => {
-      const contract = contracts.find(c => c.id === item.contractId);
-      if (!contract) return false;
+    setWorkflowQueue(prev => {
+      const newQueue = prev.filter(item => {
+        const contract = contracts.find(c => c.id === item.contractId);
+        if (!contract) return false;
+        
+        // Remove workflows for contracts that now have AMSC codes
+        if (contract.cde_g) return false;
+        
+        // Keep pending and running workflows
+        if (item.status === 'pending' || item.status === 'running') return true;
+        
+        // Remove completed and failed workflows
+        return false;
+      });
       
-      // Remove workflows for contracts that now have AMSC codes
-      if (contract.cde_g) return false;
-      
-      // Keep pending and running workflows
-      if (item.status === 'pending' || item.status === 'running') return true;
-      
-      // Remove completed and failed workflows
-      return false;
-    }));
-  }, [contracts]); // Keep only contracts as dependency
+      return newQueue;
+    });
+  }, [contracts.map(c => c.id + ':' + c.cde_g).join(',')]); // Create a stable dependency string
 
   return {
     // State
@@ -408,6 +502,7 @@ export const useContractWatcher = (config: ContractWatcherConfig = {}) => {
     triggerWorkflowsForContract,
     cleanupWorkflowQueue,
     refreshContractData,
+    clearWorkflowQueue, // Add new action
     
     // Configuration
     config: {

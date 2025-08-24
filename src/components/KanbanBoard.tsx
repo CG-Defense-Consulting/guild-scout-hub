@@ -249,9 +249,15 @@ export const KanbanBoard = ({
                 
                 {/* Workflow Needed Indicator */}
                 {!contract.cde_g && (
-                  <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-300 bg-yellow-50">
-                    Needs Workflow
-                  </Badge>
+                  <div className="group relative">
+                    <Badge 
+                      variant="outline" 
+                      className="text-xs text-yellow-600 border-yellow-300 bg-yellow-50 cursor-help"
+                      title="This contract needs the NSN AMSC workflow to extract the AMSC code from DIBBS. Click the contract to view details and run the workflow."
+                    >
+                      Missing AMSC Code
+                    </Badge>
+                  </div>
                 )}
                 
                 {/* AMSC Status Indicator */}
@@ -260,6 +266,9 @@ export const KanbanBoard = ({
                     <div className={`w-2 h-2 rounded-full ${contract.cde_g === 'G' ? 'bg-green-500' : 'bg-blue-500'}`} />
                     <span className="text-xs text-muted-foreground">
                       AMSC: {contract.cde_g}
+                    </span>
+                    <span className="text-xs text-green-600 font-medium">
+                      ✓ Extracted
                     </span>
                   </div>
                 )}

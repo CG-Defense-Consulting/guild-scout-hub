@@ -13,16 +13,25 @@ import {
   CheckCircle, 
   XCircle,
   AlertCircle,
-  Settings
+  Settings,
+  Trash2
 } from 'lucide-react';
 import { useContractWatcher } from '@/hooks/use-contract-watcher';
 import { cn } from '@/lib/utils';
 
 interface ContractWatcherPanelProps {
   className?: string;
+  uploadedDocuments?: Array<{
+    originalFileName: string;
+    storagePath: string;
+    [key: string]: any;
+  }>;
 }
 
-export const ContractWatcherPanel: React.FC<ContractWatcherPanelProps> = ({ className }) => {
+export const ContractWatcherPanel: React.FC<ContractWatcherPanelProps> = ({ 
+  className, 
+  uploadedDocuments = [] 
+}) => {
   const {
     isWatching,
     workflowQueue,
@@ -30,12 +39,14 @@ export const ContractWatcherPanel: React.FC<ContractWatcherPanelProps> = ({ clas
     startWatching,
     stopWatching,
     cleanupWorkflowQueue,
-    refreshContractData
+    refreshContractData,
+    clearWorkflowQueue
   } = useContractWatcher({
     enabled: true,
     checkInterval: 30000, // 30 seconds
     maxConcurrentWorkflows: 3,
-    autoTrigger: true
+    autoTrigger: true,
+    uploadedDocuments
   });
 
   const getStatusColor = (status: string) => {
@@ -146,6 +157,17 @@ export const ContractWatcherPanel: React.FC<ContractWatcherPanelProps> = ({ clas
             >
               <RefreshCw className="w-3 h-3 mr-1" />
               Cleanup
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={clearWorkflowQueue}
+              className="h-8 px-3"
+              disabled={workflowQueue.length === 0}
+              title="Clear entire workflow queue (for debugging)"
+            >
+              <Trash2 className="w-3 h-3 mr-1" />
+              Clear All
             </Button>
           </div>
         </CardTitle>
