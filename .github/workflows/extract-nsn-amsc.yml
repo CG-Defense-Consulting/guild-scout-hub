@@ -55,13 +55,12 @@ jobs:
           echo "Chrome version:"
           google-chrome --version || echo "Chrome not found in PATH"
           echo "Chrome binary location:"
-          which google-chrome || echo "Chrome binary not found"
-          
+                      which google-chrome || echo "Chrome binary not found"
+            
       - name: Install ChromeDriver
         run: |
-          # Install ChromeDriver if not present
-          if ! command -v chromedriver &> /dev/null; then
-            echo "Installing ChromeDriver..."
+          # Always install ChromeDriver to ensure we get the right version
+          echo "Installing ChromeDriver..."
           
           # First, check what Chrome version we have
           CHROME_VERSION=$(google-chrome --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
@@ -115,6 +114,7 @@ jobs:
           echo "Removing any existing ChromeDriver..."
           sudo rm -f /usr/local/bin/chromedriver
           sudo rm -f /usr/bin/chromedriver
+          sudo rm -f /snap/bin/chromedriver
           
           # Extract and install
           echo "Extracting ChromeDriver..."
@@ -123,10 +123,16 @@ jobs:
           
           echo "Setting permissions and installing..."
           chmod +x chromedriver
+          echo "Moving ChromeDriver to /usr/local/bin/"
           sudo mv chromedriver /usr/local/bin/
           
           # Verify ChromeDriver installation
           echo "Verifying ChromeDriver installation..."
+          echo "ChromeDriver files in /usr/local/bin:"
+          ls -la /usr/local/bin/chromedriver* || echo "No ChromeDriver in /usr/local/bin"
+          echo "ChromeDriver files in /usr/bin:"
+          ls -la /usr/bin/chromedriver* || echo "No ChromeDriver in /usr/bin"
+          echo ""
           echo "ChromeDriver location: $(which chromedriver)"
           echo "ChromeDriver version:"
           chromedriver --version
@@ -161,10 +167,6 @@ jobs:
             file chromedriver || echo "chromedriver file not found"
             echo ""
             exit 1
-          fi
-          else
-            echo "ChromeDriver already installed:"
-            chromedriver --version
           fi
           
       - name: Test Chrome setup
@@ -221,27 +223,35 @@ jobs:
           which chromedriver || echo "ChromeDriver not found in PATH"
           chromedriver --version || echo "ChromeDriver version check failed"
           echo ""
-          echo "Removing any conflicting ChromeDriver installations..."
-          sudo rm -f /usr/bin/chromedriver
-          sudo rm -f /snap/bin/chromedriver
-          echo ""
           echo "ChromeDriver should be in /usr/local/bin:"
           ls -la /usr/local/bin/chromedriver* || echo "No ChromeDriver in /usr/local/bin"
+          echo ""
+          echo "Removing any conflicting ChromeDriver installations from other locations..."
+          sudo rm -f /usr/bin/chromedriver
+          sudo rm -f /snap/bin/chromedriver
           echo ""
           echo "PATH environment variable:"
           echo $PATH
           echo ""
           echo "Testing ChromeDriver execution from /usr/local/bin:"
-          /usr/local/bin/chromedriver --version || echo "Direct execution failed"
-          echo ""
-          echo "Making sure ChromeDriver is executable:"
-          sudo chmod +x /usr/local/bin/chromedriver
-          ls -la /usr/local/bin/chromedriver*
-          echo ""
-          echo "Verifying ChromeDriver is accessible:"
-          export PATH="/usr/local/bin:$PATH"
-          which chromedriver || echo "ChromeDriver still not in PATH after export"
-          chromedriver --version || echo "ChromeDriver version check still failing"
+          if [ -f "/usr/local/bin/chromedriver" ]; then
+            /usr/local/bin/chromedriver --version
+            echo ""
+            echo "Making sure ChromeDriver is executable:"
+            sudo chmod +x /usr/local/bin/chromedriver
+            ls -la /usr/local/bin/chromedriver*
+            echo ""
+            echo "Verifying ChromeDriver is accessible:"
+            export PATH="/usr/local/bin:$PATH"
+            which chromedriver || echo "ChromeDriver still not in PATH after export"
+            chromedriver --version || echo "ChromeDriver version check still failing"
+          else
+            echo "❌ ChromeDriver not found in /usr/local/bin - installation may have failed"
+            echo "Checking for ChromeDriver in other locations:"
+            ls -la /usr/bin/chromedriver* || echo "No ChromeDriver in /usr/bin"
+            ls -la /snap/bin/chromedriver* || echo "No ChromeDriver in /snap/bin"
+            exit 1
+          fi
           
       - name: Extract NSN AMSC Code
         id: extract
