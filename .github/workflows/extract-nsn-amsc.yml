@@ -39,31 +39,46 @@ jobs:
       - name: Set up Chrome
         uses: browser-actions/setup-chrome@v1
         
-      - name: Install ChromeDriver
+      - name: Install system dependencies
         run: |
-          # Install ChromeDriver using a more reliable method
-          echo "Installing ChromeDriver..."
+          sudo apt-get update
+          sudo apt-get install -y wget unzip xvfb
           
-          # Get the latest stable ChromeDriver version
-          CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE")
-          echo "Latest ChromeDriver version: $CHROMEDRIVER_VERSION"
+      - name: Configure Chrome permissions
+        run: |
+          # Ensure Chrome can run in headless mode
+          sudo mkdir -p /etc/opt/chrome/policies/managed/
+          echo '{"CommandLineFlagSecurityWarningsEnabled": false}' | sudo tee /etc/opt/chrome/policies/managed/managed_policies.json
           
-          # Download and install ChromeDriver
-          wget -N "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
-          unzip -o chromedriver_linux64.zip
-          chmod +x chromedriver
-          sudo mv chromedriver /usr/local/bin/
-          
-          # Verify ChromeDriver installation
-          chromedriver --version
-          
-          echo "ChromeDriver installation completed successfully"
+      - name: Verify Chrome installation
+        run: |
+          echo "Chrome version:"
+          google-chrome --version || echo "Chrome not found in PATH"
+          echo "Chrome binary location:"
+          which google-chrome || echo "Chrome binary not found"
+            
+      - name: Setup ChromeDriver
+        uses: ./.github/actions/setup-chromedriver
           
       - name: Test Chrome setup
         run: |
           # Test Chrome and ChromeDriver
+          echo "=== Chrome Setup Verification ==="
+          echo "Chrome version:"
           google-chrome --version
+          echo ""
+          echo "ChromeDriver version:"
           chromedriver --version
+          echo ""
+          echo "ChromeDriver location:"
+          which chromedriver
+          echo ""
+          echo "ChromeDriver path contents:"
+          ls -la /usr/local/bin/chromedriver* || echo "No ChromeDriver in /usr/local/bin"
+          ls -la /usr/bin/chromedriver* || echo "No ChromeDriver in /usr/bin"
+          echo ""
+          echo "PATH environment:"
+          echo $PATH
           
       - name: Set up environment variables
         run: |
@@ -72,7 +87,7 @@ jobs:
           VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
           SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          DIBBS_BASE_URL=https://dibbs2.bsm.dla.mil
+          DIBBS_BASE_URL=https://www.dibbs.bsm.dla.mil
           DIBBS_DOWNLOAD_DIR=./downloads
           SELENIUM_HEADLESS=true
           SELENIUM_TIMEOUT=30
@@ -80,6 +95,27 @@ jobs:
           LOG_FILE=./logs/etl.log
           SUPABASE_BUCKET_NAME=docs
           EOF
+          
+          # Export environment variables for Python to access
+          # Use GITHUB_ENV to make them available to subsequent steps
+          echo "VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}" >> $GITHUB_ENV
+          echo "VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}" >> $GITHUB_ENV
+          echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
+          echo "DIBBS_BASE_URL=https://www.dibbs.bsm.dla.mil" >> $GITHUB_ENV
+          echo "DIBBS_DOWNLOAD_DIR=./downloads" >> $GITHUB_ENV
+          echo "SELENIUM_HEADLESS=true" >> $GITHUB_ENV
+          echo "SELENIUM_TIMEOUT=30" >> $GITHUB_ENV
+          echo "LOG_LEVEL=INFO" >> $GITHUB_ENV
+          echo "LOG_FILE=./logs/etl.log" >> $GITHUB_ENV
+          echo "SUPABASE_BUCKET_NAME=docs" >> $GITHUB_ENV
+          
+          echo "Environment variables set up completed"
+          
+          # Verify environment variables are set
+          echo "Verifying environment variables:"
+          echo "VITE_SUPABASE_URL: $VITE_SUPABASE_URL"
+          echo "SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:0:10}..."  # Show first 10 chars
+          echo "DIBBS_BASE_URL: $DIBBS_BASE_URL"
           
       - name: Install Python dependencies
         run: |
@@ -92,42 +128,58 @@ jobs:
           cd etl
           mkdir -p downloads logs
           
+      - name: Test environment variables
+        run: |
+          cd etl
+          echo "Testing environment variable access..."
+          echo "VITE_SUPABASE_URL: $VITE_SUPABASE_URL"
+          echo "SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:0:10}..."
+          echo "DIBBS_BASE_URL: $DIBBS_BASE_URL"
+          
+          # Test Python environment variable access
+          python -c "import os; print('Python env test:', 'VITE_SUPABASE_URL' in os.environ)"
+          
       - name: Extract NSN AMSC Code
         id: extract
         run: |
           cd etl
           
+          # Ensure ChromeDriver is in PATH for Python execution
+          export PATH="/usr/local/bin:$PATH"
+          echo "PATH for Python execution: $PATH"
+          echo "ChromeDriver location: $(which chromedriver)"
+          echo "ChromeDriver version: $(chromedriver --version)"
+          
           # Handle both workflow_dispatch and repository_dispatch events
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            # Manual trigger from GitHub UI
             CONTRACT_ID="${{ github.event.inputs.contract_id }}"
             NSN="${{ github.event.inputs.nsn }}"
             VERBOSE="${{ github.event.inputs.verbose }}"
           else
-            # API trigger via repository_dispatch
+            # repository_dispatch event
             CONTRACT_ID="${{ github.event.client_payload.contract_id }}"
             NSN="${{ github.event.client_payload.nsn }}"
-            VERBOSE="false"
+            VERBOSE="${{ github.event.client_payload.verbose }}"
           fi
           
           echo "Contract ID: $CONTRACT_ID"
           echo "NSN: $NSN"
           echo "Verbose: $VERBOSE"
           
-          # Build command with optional verbose flag
-          CMD="python workflows/adhoc/extract_nsn_amsc.py '$CONTRACT_ID' '$NSN'"
-          if [ "$VERBOSE" = "true" ]; then
-            CMD="$CMD --verbose"
-          fi
+          # Debug: Check environment variables available to Python
+          echo "Environment variables available to Python:"
+          echo "VITE_SUPABASE_URL: $VITE_SUPABASE_URL"
+          echo "SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:0:10}..."
+          echo "DIBBS_BASE_URL: $DIBBS_BASE_URL"
           
-          echo "Running: $CMD"
-          eval $CMD
+          # Run the AMSC extraction workflow
+          python workflows/adhoc/extract_nsn_amsc.py "$CONTRACT_ID" "$NSN"
           
       - name: Upload logs
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: amsc-extraction-logs
+          name: nsn-amsc-logs
           path: |
             etl/logs/
             etl/downloads/

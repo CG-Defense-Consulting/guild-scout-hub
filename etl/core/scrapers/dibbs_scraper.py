@@ -30,8 +30,11 @@ class DibbsScraper:
             download_dir: Directory to save downloaded files
             headless: Whether to run browser in headless mode
         """
-        self.base_url = "https://dibbs2.bsm.dla.mil"
+        # Use environment variable if available, otherwise fallback to default
+        self.base_url = os.getenv('DIBBS_BASE_URL', "https://dibbs2.bsm.dla.mil")
         self.download_dir = download_dir or os.path.join(os.getcwd(), "downloads")
+        
+        logger.info(f"DibbsScraper initialized with base_url: {self.base_url}")
         
         # Ensure download directory exists
         Path(self.download_dir).mkdir(parents=True, exist_ok=True)
@@ -359,15 +362,22 @@ class DibbsScraper:
             logger.info(f"Extracting AMSC code for NSN: {nsn}")
             
             # Construct the NSN Details URL
-            nsn_url = f"https://www.dibbs.bsm.dla.mil/RFQ/RFQNsn.aspx?value={nsn}&category=nsn"
+            nsn_url = f"https://www.dibbs.bsm.dla.mil//rfq/rfqnsn.aspx?value={nsn}"
             logger.info(f"Navigating to NSN URL: {nsn_url}")
             
             # Handle consent page and navigate to NSN details
+            logger.info(f"About to handle consent page for URL: {nsn_url}")
             if not self._handle_consent_page(nsn_url):
                 logger.error(f"Failed to handle consent page for NSN: {nsn}")
                 return None
             
             logger.info("Consent page handled successfully, waiting for NSN page to load...")
+            logger.info(f"After consent page, current URL: {self.driver.current_url}")
+            
+            # Wait a moment for the page to fully load
+            import time
+            time.sleep(2)
+            logger.info(f"After wait, current URL: {self.driver.current_url}")
             
             # Wait for page to load and look for AMSC field
             from selenium.webdriver.support.ui import WebDriverWait
@@ -387,19 +397,48 @@ class DibbsScraper:
             current_url = self.driver.current_url
             logger.info(f"Current page URL: {current_url}")
             
+            # Check if we're on the expected NSN page
+            if "rfqnsn.aspx" in current_url.lower():
+                logger.info("✅ Successfully navigated to NSN details page")
+            else:
+                logger.warning(f"⚠️ Unexpected page URL: {current_url}")
+                logger.warning("Expected URL to contain 'rfqnsn.aspx'")
+            
             # Get page title for debugging
             page_title = self.driver.title
             logger.info(f"Page title: {page_title}")
+            
+            # Get page source first, then log info about it
+            page_source = self.driver.page_source
+            import re
+            
+            # Log additional page info
+            logger.info(f"Page source length: {len(page_source)} characters")
+            logger.info(f"Page source contains 'AMSC:': {'AMSC:' in page_source}")
+            logger.info(f"Page source contains 'AMSC': {'AMSC' in page_source}")
+            logger.info(f"Page source contains 'amsc': {'amsc' in page_source.lower()}")
+            
+            # Log a small sample of the page source to see what we're getting
+            if len(page_source) > 0:
+                sample_start = page_source[:200]
+                sample_end = page_source[-200:] if len(page_source) > 200 else ""
+                logger.info(f"Page source sample (start): {sample_start}")
+                logger.info(f"Page source sample (end): {sample_end}")
+                
+                # Check for common HTML elements that should be present
+                logger.info(f"Page contains <html>: {'<html' in page_source.lower()}")
+                logger.info(f"Page contains <body>: {'<body' in page_source.lower()}")
+                logger.info(f"Page contains <title>: {'<title' in page_source.lower()}")
+            else:
+                logger.warning("Page source is empty!")
             
             # Look for text containing "AMSC:" followed by a letter
             # The AMSC field is usually displayed as "AMSC: G" or similar
             amsc_pattern = r"AMSC:\s*([A-Z])"
             
-            # Get page source and search for AMSC pattern
-            page_source = self.driver.page_source
-            import re
-            
-            logger.info(f"Page source length: {len(page_source)} characters")
+            # Log detailed page source preview
+            logger.info(f"Page source preview (first 500 chars): {page_source[:500]}")
+            logger.info(f"Page source preview (last 500 chars): {page_source[-500:]}")
             
             # Log a sample of the page source around where AMSC might be
             amsc_index = page_source.find("AMSC:")
@@ -473,6 +512,71 @@ class DibbsScraper:
                             return amsc_code
             except Exception as e:
                 logger.warning(f"Legend search failed: {str(e)}")
+            
+            # Alternative 4: Look for the specific HTML structure from the user's example
+            # The AMSC code "B" is in a <strong> tag that's a sibling to "AMSC:" text
+            try:
+                logger.info("Searching for specific HTML structure: <legend> with <strong> containing AMSC...")
+                legend_elements = self.driver.find_elements(By.TAG_NAME, "legend")
+                
+                for i, legend in enumerate(legend_elements):
+                    logger.info(f"Examining legend element {i+1}")
+                    
+                    # Look for <strong> tags within this legend
+                    strong_elements = legend.find_elements(By.TAG_NAME, "strong")
+                    logger.info(f"  Found {len(strong_elements)} <strong> elements in legend {i+1}")
+                    
+                    for j, strong in enumerate(strong_elements):
+                        strong_text = strong.text.strip()
+                        logger.info(f"    Strong element {j+1} text: '{strong_text}'")
+                        
+                        # Check if this strong element contains a single letter (potential AMSC)
+                        if strong_text and len(strong_text) == 1 and strong_text.isalpha():
+                            logger.info(f"    Found single letter: '{strong_text}'")
+                            
+                            # Check if this legend contains "AMSC:" text
+                            legend_text = legend.text
+                            if "AMSC:" in legend_text:
+                                logger.info(f"    Legend contains 'AMSC:' text")
+                                
+                                # Verify this is the AMSC code by checking the context
+                                # Look for the text pattern around this strong element
+                                try:
+                                    # Get the parent text to see the full context
+                                    parent = strong.find_element(By.XPATH, "..")
+                                    parent_text = parent.text
+                                    logger.info(f"    Parent text context: '{parent_text}'")
+                                    
+                                    # Check if this looks like an AMSC field
+                                    if "AMSC:" in parent_text and strong_text in parent_text:
+                                        logger.info(f"✓ Found AMSC code '{strong_text}' in <strong> tag within <legend>")
+                                        return strong_text
+                                except Exception as e:
+                                    logger.warning(f"    Error checking parent context: {str(e)}")
+                                    
+            except Exception as e:
+                logger.warning(f"Specific HTML structure search failed: {str(e)}")
+            
+            # Alternative 5: Look for any text that matches the expected pattern
+            try:
+                logger.info("Searching for any text matching AMSC pattern...")
+                # Look for text nodes that contain "AMSC:" followed by a letter
+                amsc_text_elements = self.driver.find_elements(By.XPATH, "//text()[contains(., 'AMSC:')]")
+                logger.info(f"Found {len(amsc_text_elements)} text nodes containing 'AMSC:'")
+                
+                for i, text_element in enumerate(amsc_text_elements):
+                    text_content = text_element.text
+                    logger.info(f"Text node {i+1}: '{text_content}'")
+                    
+                    # Look for the pattern "AMSC: X" where X is a letter
+                    match = re.search(r'AMSC:\s*([A-Z])', text_content)
+                    if match:
+                        amsc_code = match.group(1)
+                        logger.info(f"✓ Found AMSC code in text node: {amsc_code}")
+                        return amsc_code
+                        
+            except Exception as e:
+                logger.warning(f"Text node search failed: {str(e)}")
             
             # Log the full page source for debugging if AMSC not found
             logger.error(f"AMSC code not found for NSN: {nsn}")

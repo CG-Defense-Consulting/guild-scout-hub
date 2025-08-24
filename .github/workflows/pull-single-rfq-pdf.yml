@@ -66,35 +66,24 @@ jobs:
           echo "Chrome binary location:"
           which google-chrome || echo "Chrome binary not found"
           
-      - name: Install ChromeDriver
-        run: |
-          # Install ChromeDriver if not present
-          if ! command -v chromedriver &> /dev/null; then
-            echo "Installing ChromeDriver..."
-            
-            # Get the latest stable ChromeDriver version
-            CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE")
-            echo "Latest ChromeDriver version: $CHROMEDRIVER_VERSION"
-            
-            # Download and install ChromeDriver
-            wget -q "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
-            unzip chromedriver_linux64.zip
-            sudo mv chromedriver /usr/local/bin/
-            sudo chmod +x /usr/local/bin/chromedriver
-            rm chromedriver_linux64.zip
-            
-            echo "ChromeDriver installed successfully"
-          else
-            echo "ChromeDriver already installed:"
-            chromedriver --version
-          fi
+      - name: Setup ChromeDriver
+        uses: ./.github/actions/setup-chromedriver
           
       - name: Verify ChromeDriver installation
         run: |
+          echo "=== ChromeDriver Installation Verification ==="
           echo "ChromeDriver version:"
           chromedriver --version
+          echo ""
           echo "ChromeDriver location:"
           which chromedriver
+          echo ""
+          echo "ChromeDriver path contents:"
+          ls -la /usr/local/bin/chromedriver* || echo "No ChromeDriver in /usr/local/bin"
+          ls -la /usr/bin/chromedriver* || echo "No ChromeDriver in /usr/bin"
+          echo ""
+          echo "PATH environment:"
+          echo $PATH
           
       - name: Install Python dependencies
         run: |
@@ -128,6 +117,23 @@ jobs:
         run: |
           cd etl
           mkdir -p downloads logs
+          
+      - name: Ensure correct ChromeDriver is used
+        run: |
+          echo "=== Ensuring Correct ChromeDriver ==="
+          echo "Current ChromeDriver:"
+          which chromedriver
+          chromedriver --version
+          echo ""
+          echo "Removing any conflicting ChromeDriver installations..."
+          sudo rm -f /usr/bin/chromedriver
+          echo ""
+          echo "Verifying ChromeDriver installation:"
+          which chromedriver
+          chromedriver --version
+          echo ""
+          echo "ChromeDriver should be in /usr/local/bin:"
+          ls -la /usr/local/bin/chromedriver*
           
       - name: Test Chrome setup
         run: |

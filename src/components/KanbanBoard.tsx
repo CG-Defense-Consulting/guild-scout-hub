@@ -39,15 +39,18 @@ const RfqPdfButton = ({ solicitationNumber, contractId }: { solicitationNumber: 
 
         if (files && files.length > 0) {
           // Look for files that contain the solicitation number
+          // Check for both .PDF and .pdf extensions
           const rfqFile = files.find(file => 
-            file.name.includes(solicitationNumber) && file.name.endsWith('.PDF')
+            file.name.includes(solicitationNumber) && 
+            (file.name.toLowerCase().endsWith('.pdf'))
           );
           
           if (rfqFile) {
+            console.log(`Found RFQ PDF file: ${rfqFile.name}`);
             // Create a signed URL for the PDF
             const { data: urlData, error: urlError } = await supabase.storage
               .from('docs')
-              .createSignedUrl(rfqFile.name, 3600); // 1 hour expiry
+              .createSignedUrl(rfqFile.name, 86400); // 24 hour expiry for better UX
 
             if (urlError) {
               console.error('Error creating signed URL:', urlError);
@@ -56,7 +59,12 @@ const RfqPdfButton = ({ solicitationNumber, contractId }: { solicitationNumber: 
 
             setHasPdf(true);
             setPdfUrl(urlData.signedUrl);
+            console.log(`RFQ PDF URL set: ${urlData.signedUrl}`);
+          } else {
+            console.log(`No RFQ PDF found for solicitation ${solicitationNumber} in files:`, files.map(f => f.name));
           }
+        } else {
+          console.log(`No files found with contract-${contractId}- prefix`);
         }
       } catch (error) {
         console.error('Error checking for RFQ PDF:', error);
@@ -83,9 +91,13 @@ const RfqPdfButton = ({ solicitationNumber, contractId }: { solicitationNumber: 
     <Button
       size="sm"
       variant="ghost"
-      className="h-6 w-6 p-0 flex-shrink-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+      className={`h-6 w-6 p-0 flex-shrink-0 ${
+        hasPdf 
+          ? 'text-green-600 hover:text-green-700 hover:bg-green-50' 
+          : 'text-blue-600 hover:text-blue-700 hover:bg-blue-50'
+      }`}
       onClick={handleClick}
-      title={hasPdf ? "View RFQ PDF from Supabase" : "View RFQ PDF from DIBBS"}
+      title={hasPdf ? `View RFQ PDF from Supabase (${solicitationNumber})` : `View RFQ PDF from DIBBS (${solicitationNumber})`}
     >
       <FileText className="w-3 h-3" />
     </Button>
