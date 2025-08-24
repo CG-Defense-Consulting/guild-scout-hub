@@ -30,8 +30,11 @@ class DibbsScraper:
             download_dir: Directory to save downloaded files
             headless: Whether to run browser in headless mode
         """
-        self.base_url = "https://dibbs2.bsm.dla.mil"
+        # Use environment variable if available, otherwise fallback to default
+        self.base_url = os.getenv('DIBBS_BASE_URL', "https://dibbs2.bsm.dla.mil")
         self.download_dir = download_dir or os.path.join(os.getcwd(), "downloads")
+        
+        logger.info(f"DibbsScraper initialized with base_url: {self.base_url}")
         
         # Ensure download directory exists
         Path(self.download_dir).mkdir(parents=True, exist_ok=True)
@@ -359,7 +362,7 @@ class DibbsScraper:
             logger.info(f"Extracting AMSC code for NSN: {nsn}")
             
             # Construct the NSN Details URL
-            nsn_url = f"https://dibbs2.bsm.dla.mil/RFQ/RFQNsn.aspx?value={nsn}&category=nsn"
+            nsn_url = f"https://www.dibbs.bsm.dla.mil//rfq/rfqnsn.aspx?value={nsn}"
             logger.info(f"Navigating to NSN URL: {nsn_url}")
             
             # Handle consent page and navigate to NSN details
@@ -395,11 +398,11 @@ class DibbsScraper:
             logger.info(f"Current page URL: {current_url}")
             
             # Check if we're on the expected NSN page
-            if "RFQNsn.aspx" in current_url:
+            if "rfqnsn.aspx" in current_url.lower():
                 logger.info("✅ Successfully navigated to NSN details page")
             else:
                 logger.warning(f"⚠️ Unexpected page URL: {current_url}")
-                logger.warning("Expected URL to contain 'RFQNsn.aspx'")
+                logger.warning("Expected URL to contain 'rfqnsn.aspx'")
             
             # Get page title for debugging
             page_title = self.driver.title

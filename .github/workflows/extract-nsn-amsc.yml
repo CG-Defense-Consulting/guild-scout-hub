@@ -87,7 +87,7 @@ jobs:
           VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
           SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          DIBBS_BASE_URL=https://dibbs2.bsm.dla.mil
+          DIBBS_BASE_URL=https://www.dibbs.bsm.dla.mil
           DIBBS_DOWNLOAD_DIR=./downloads
           SELENIUM_HEADLESS=true
           SELENIUM_TIMEOUT=30
@@ -101,7 +101,7 @@ jobs:
           echo "VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}" >> $GITHUB_ENV
           echo "VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}" >> $GITHUB_ENV
           echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
-          echo "DIBBS_BASE_URL=https://dibbs2.bsm.dla.mil" >> $GITHUB_ENV
+          echo "DIBBS_BASE_URL=https://www.dibbs.bsm.dla.mil" >> $GITHUB_ENV
           echo "DIBBS_DOWNLOAD_DIR=./downloads" >> $GITHUB_ENV
           echo "SELENIUM_HEADLESS=true" >> $GITHUB_ENV
           echo "SELENIUM_TIMEOUT=30" >> $GITHUB_ENV
