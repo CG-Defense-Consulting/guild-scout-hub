@@ -79,38 +79,45 @@ class UniversalContractQueueDataPuller:
             # First, get all contracts from universal_contract_queue
             ucq_result = self.supabase.from_('universal_contract_queue').select('*').execute()
             
+            logger.info(f"universal_contract_queue query result: {len(ucq_result.data) if ucq_result.data else 0} records")
+            if ucq_result.data:
+                logger.info(f"Sample UCQ record: {ucq_result.data[0]}")
+            
             if not ucq_result.data:
                 logger.info("No contracts found in universal_contract_queue")
                 return []
             
             # Then get all records from rfq_index_extract
             rie_result = self.supabase.from_('rfq_index_extract').select('*').execute()
+            logger.info(f"rfq_index_extract query result: {len(rie_result.data) if rie_result.data else 0} records")
+            if rie_result.data:
+                logger.info(f"Sample RIE record: {rie_result.data[0]}")
+            
             rie_data = rie_result.data if rie_result.data else []
             
             # Create a lookup for rfq_index_extract data
             rie_lookup = {record['id']: record for record in rie_data}
+            logger.info(f"RIE lookup created with {len(rie_lookup)} keys: {list(rie_lookup.keys())[:5] if rie_lookup else 'None'}")
             
             # Process contracts to find those needing processing
             contracts_needing_processing = []
             
             for contract in ucq_result.data:
                 contract_id = contract['id']
-                nsn = contract.get('national_stock_number')
                 
-                # Skip contracts without NSN
-                if not nsn:
-                    continue
+                logger.info(f"Processing contract {contract_id}")
                 
-                # Get existing data from rfq_index_extract
+                # Get existing data from rfq_index_extract using the ID as foreign key
                 existing_data = rie_lookup.get(contract_id, {})
-                existing_amsc = existing_data.get('cde_g')
+                existing_amsc = existing_data.get('cde_g')  # ONLY check rfq_index_extract.cde_g (text field)
                 existing_closed_status = existing_data.get('closed')
                 rfq_index_id = existing_data.get('id')
                 
-                # Debug logging to show what we're checking
-                logger.debug(f"Contract {contract_id}: existing_amsc='{existing_amsc}' (type: {type(existing_amsc)}), existing_closed_status={existing_closed_status}, rfq_index_id={rfq_index_id}")
+                logger.info(f"Contract {contract_id}: existing_amsc='{existing_amsc}' (type: {type(existing_amsc)}), existing_closed_status={existing_closed_status}, rfq_index_id={rfq_index_id}")
+                logger.info(f"RIE lookup key {contract_id} exists: {contract_id in rie_lookup}")
                 
                 # Check if this contract needs processing
+                # ONLY check rfq_index_extract.cde_g (text field) - ignore universal_contract_queue.cde_g (deprecated boolean)
                 needs_processing = (
                     not existing_amsc or (isinstance(existing_amsc, str) and existing_amsc.strip() == '') or  # Missing AMSC code (None, empty string, or whitespace)
                     existing_closed_status is None or  # Missing closed status
@@ -118,15 +125,15 @@ class UniversalContractQueueDataPuller:
                 )
                 
                 if needs_processing:
-                    logger.debug(f"Contract {contract_id} needs processing - AMSC: {'missing' if (not existing_amsc or (isinstance(existing_amsc, str) and existing_amsc.strip() == '')) else 'present'}, Closed: {'missing' if existing_closed_status is None else 'present'}, RFQ Index: {'missing' if rfq_index_id is None else 'present'}")
+                    logger.info(f"Contract {contract_id} needs processing - AMSC: {'missing' if (not existing_amsc or (isinstance(existing_amsc, str) and existing_amsc.strip() == '')) else 'present'}, Closed: {'missing' if existing_closed_status is None else 'present'}, RFQ Index: {'missing' if rfq_index_id is None else 'present'}")
                 else:
-                    logger.debug(f"Contract {contract_id} does NOT need processing - all data present")
+                    logger.info(f"Contract {contract_id} does NOT need processing - all data present")
                 
                 if needs_processing:
                     contract_data = {
                         'contract_id': contract_id,
                         'solicitation_number': contract.get('solicitation_number'),
-                        'national_stock_number': nsn,
+                        'national_stock_number': contract.get('national_stock_number'),
                         'contract_title': contract.get('contract_title'),
                         'contracting_office': contract.get('contracting_office'),
                         'contract_value': contract.get('contract_value'),
@@ -441,53 +448,12 @@ def create_universal_contract_queue_workflow(headless: bool = True, timeout: int
         supabase_client = SupabaseUploader().supabase
         
         if not supabase_client:
-            logger.warning("Supabase client not available, creating mock client for testing")
-            # Create a mock client for testing purposes
-            class MockSupabaseClient:
-                def from_(self, table_name):
-                    return MockTable(table_name)
-                    
-            class MockTable:
-                def __init__(self, table_name):
-                    self.table_name = table_name
-                    
-                def select(self, columns):
-                    return MockQuery()
-                    
-            class MockQuery:
-                def execute(self):
-                    return MockResult()
-                    
-            class MockResult:
-                def __init__(self):
-                    self.data = []
-                    
-            supabase_client = MockSupabaseClient()
+            logger.error("Failed to initialize Supabase client - no client available")
+            raise RuntimeError("Supabase client not available")
             
     except Exception as e:
         logger.error(f"Failed to initialize Supabase client: {str(e)}")
-        logger.warning("Creating mock client for testing purposes")
-        # Create a mock client for testing purposes
-        class MockSupabaseClient:
-            def from_(self, table_name):
-                return MockTable(table_name)
-                
-        class MockTable:
-            def __init__(self, table_name):
-                self.table_name = table_name
-                
-            def select(self, columns):
-                return MockQuery()
-                
-        class MockQuery:
-            def execute(self):
-                return MockResult()
-                
-        class MockResult:
-            def __init__(self):
-                self.data = []
-                
-        supabase_client = MockSupabaseClient()
+        raise
     
     # Create data puller and query contracts needing processing
     data_puller = UniversalContractQueueDataPuller(supabase_client)

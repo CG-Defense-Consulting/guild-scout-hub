@@ -7,17 +7,8 @@ from typing import Dict, Any, Optional
 import logging
 import os
 from pathlib import Path
-
-# Make supabase import optional to prevent import errors in environments where it's not available
-try:
-    from supabase import create_client, Client
-    from supabase.lib.client_options import ClientOptions
-    SUPABASE_AVAILABLE = True
-except ImportError:
-    SUPABASE_AVAILABLE = False
-    Client = None
-    create_client = None
-    ClientOptions = None
+from supabase import create_client, Client
+from supabase.lib.client_options import ClientOptions
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +22,6 @@ class SupabaseUploader:
         
     def _initialize_client(self):
         """Initialize the Supabase client."""
-        if not SUPABASE_AVAILABLE:
-            logger.warning("Supabase module not available, skipping client initialization")
-            return
-            
         try:
             # GitHub Actions compatibility: prioritize environment variables over .env files
             # This ensures the workflow works in CI/CD environments

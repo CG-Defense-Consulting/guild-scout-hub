@@ -1,22 +1,11 @@
 """
 Supabase Upload Operation
-
-This operation handles uploading batch results to Supabase database.
-It can process multiple AMSC extraction results and update the database efficiently.
+Handles uploading processed data to Supabase database
 """
 
+from typing import Dict, Any, List, Optional
 import logging
-from typing import Any, Dict, List, Optional
-
-# Make supabase import optional to prevent import errors in environments where it's not available
-try:
-    from supabase import create_client, Client
-    SUPABASE_AVAILABLE = True
-except ImportError:
-    SUPABASE_AVAILABLE = False
-    Client = None
-    create_client = None
-
+from supabase import create_client, Client
 from .base_operation import BaseOperation, OperationResult, OperationStatus
 
 logger = logging.getLogger(__name__)
@@ -51,10 +40,6 @@ class SupabaseUploadOperation(BaseOperation):
     
     def _initialize_client(self):
         """Initialize the Supabase client."""
-        if not SUPABASE_AVAILABLE:
-            logger.warning("Supabase module not available, skipping client initialization")
-            return
-            
         try:
             import os
             from pathlib import Path
@@ -115,14 +100,6 @@ class SupabaseUploadOperation(BaseOperation):
         Returns:
             OperationResult with upload success status and metadata
         """
-        if not SUPABASE_AVAILABLE:
-            return OperationResult(
-                success=False,
-                status=OperationStatus.FAILED,
-                error="Supabase module not available",
-                metadata={'supabase_available': False}
-            )
-            
         if not self.supabase:
             return OperationResult(
                 success=False,
