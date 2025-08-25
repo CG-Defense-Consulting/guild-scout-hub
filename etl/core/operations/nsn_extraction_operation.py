@@ -35,7 +35,7 @@ class NsnExtractionOperation(BaseOperation):
             name="nsn_extraction",
             description="Extract NSN data from DIBBS pages"
         )
-        self.set_required_inputs(['driver', 'nsn'])
+        self.set_required_inputs(['nsn'])
         self.set_optional_inputs(['timeout', 'retry_attempts', 'extract_fields', 'base_url', 'check_closed_status'])
 
     def _execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> OperationResult:
@@ -43,14 +43,23 @@ class NsnExtractionOperation(BaseOperation):
         Execute NSN extraction operation.
         
         Args:
-            inputs: Operation inputs including driver, nsn, and optional parameters
-            context: Shared workflow context
+            inputs: Operation inputs including nsn and optional parameters
+            context: Shared workflow context containing the Chrome driver
             
         Returns:
             OperationResult with extracted data or error information
         """
         try:
-            driver = inputs['driver']
+            # Get driver from context (set by ChromeSetupOperation)
+            driver = context.get('chrome_driver')
+            if not driver:
+                return OperationResult(
+                    success=False,
+                    status=OperationStatus.FAILED,
+                    error="Chrome driver not found in context. Make sure ChromeSetupOperation runs first.",
+                    metadata={'context_keys': list(context.keys())}
+                )
+            
             nsn = inputs['nsn']
             timeout = inputs.get('timeout', 30)
             retry_attempts = inputs.get('retry_attempts', 3)

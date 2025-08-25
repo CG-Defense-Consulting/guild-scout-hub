@@ -9,6 +9,7 @@ from .base_operation import BaseOperation, OperationResult, OperationStatus
 from .chrome_setup_operation import ChromeSetupOperation
 from .consent_page_operation import ConsentPageOperation
 from .nsn_extraction_operation import NsnExtractionOperation
+from .rfq_pdf_download_operation import RfqPdfDownloadOperation
 from .supabase_upload_operation import SupabaseUploadOperation
 
 __all__ = [
@@ -18,5 +19,6 @@ __all__ = [
     'ChromeSetupOperation',
     'ConsentPageOperation',
     'NsnExtractionOperation',
+    'RfqPdfDownloadOperation',
     'SupabaseUploadOperation'
 ]

@@ -271,8 +271,34 @@ class UniversalContractQueueDataPuller:
         ]
         
         if contracts_needing_pdfs:
-            # Add RFQ PDF download step here
-            logger.info(f"Will download RFQ PDFs for {len(contracts_needing_pdfs)} contracts")
+            # Get solicitation numbers for PDF download
+            solicitation_numbers = []
+            for contract_id in contracts_needing_pdfs:
+                gaps = contract_gaps[contract_id]
+                solicitation_number = gaps.get('solicitation_number')
+                if solicitation_number:
+                    solicitation_numbers.append(solicitation_number)
+            
+            if solicitation_numbers:
+                from core.operations import RfqPdfDownloadOperation
+                rfq_pdf_download = RfqPdfDownloadOperation()
+                workflow.add_step(
+                    operation=rfq_pdf_download,
+                    inputs={'timeout': timeout, 'retry_attempts': retry_attempts},
+                    depends_on=['chrome_setup'],
+                    batch_config={'items': solicitation_numbers}
+                )
+                logger.info(f"Added RFQ PDF download for {len(solicitation_numbers)} solicitations")
+        
+        # Step 4: Upload extracted data to Supabase
+        if nsn_list:
+            supabase_upload = SupabaseUploadOperation()
+            workflow.add_step(
+                operation=supabase_upload,
+                inputs={'batch_size': batch_size, 'table_name': 'rfq_index_extract'},
+                depends_on=['nsn_extraction'],
+                batch_config={}
+            )
         
         return workflow
 
