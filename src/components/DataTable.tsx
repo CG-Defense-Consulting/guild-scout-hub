@@ -266,8 +266,8 @@ export const DataTable = ({ data, columns, loading, searchable = true, onSearchC
         </div>
       ) : (
         /* Desktop Table Layout */
-        <div className="rounded-md border">
-          <Table>
+        <div className="data-table-container rounded-md border">
+          <Table className="data-table">
             <TableHeader>
               <TableRow>
                 {columns.map((column) => {
@@ -278,15 +278,15 @@ export const DataTable = ({ data, columns, loading, searchable = true, onSearchC
                     <TableHead 
                       key={key}
                       className={cn(
-                        "cursor-pointer hover:bg-muted/50 transition-colors",
+                        "cursor-pointer hover:bg-muted/50 transition-colors whitespace-nowrap",
                         column.headerClassName
                       )}
                       onClick={() => key && handleSort(key)}
                     >
                       <div className="flex items-center gap-2">
-                        <span>{column.header}</span>
+                        <span className="truncate">{column.header}</span>
                         {sortInfo && (
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1 flex-shrink-0">
                             <span className="text-guild-accent-1">
                               {sortInfo.direction === 'asc' ? (
                                 <ChevronUp className="w-4 h-4" />
@@ -315,17 +315,27 @@ export const DataTable = ({ data, columns, loading, searchable = true, onSearchC
               ) : (
                 paginatedData.map((row, index) => (
                   <TableRow key={index}>
-                    {columns.map((column) => (
-                      <TableCell key={column.accessorKey || column.id}>
-                        {column.cell
-                          ? column.cell({ 
-                              getValue: () => row[column.accessorKey || ''],
-                              row: { original: row }
-                            })
-                          : row[column.accessorKey || '']
-                        }
-                      </TableCell>
-                    ))}
+                    {columns.map((column) => {
+                      const key = column.accessorKey || column.id;
+                      
+                      return (
+                        <TableCell 
+                          key={key}
+                          className={cn(
+                            "whitespace-nowrap",
+                            column.headerClassName
+                          )}
+                        >
+                          {column.cell
+                            ? column.cell({ 
+                                getValue: () => row[column.accessorKey || ''],
+                                row: { original: row }
+                              })
+                            : row[column.accessorKey || '']
+                          }
+                        </TableCell>
+                      );
+                    })}
                   </TableRow>
                 ))
               )}
