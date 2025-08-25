@@ -7,7 +7,7 @@ It can be reused by any operation that needs to navigate through consent pages.
 
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -263,7 +263,7 @@ class ConsentPageOperation(BaseOperation):
         """
         return True
     
-    def apply_to_batch(self, items: list, inputs: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> list:
+    def apply_to_batch(self, items: List[Any], inputs: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> List[OperationResult]:
         """
         Apply consent page handling to a batch of URLs or pages.
         
@@ -291,7 +291,7 @@ class ConsentPageOperation(BaseOperation):
             if isinstance(item, str) and item.startswith('http'):
                 item_inputs['url'] = item
             else:
-                item_inputs['item'] = item
+                item_inputs['nsn'] = item  # Set 'nsn' input for NSN processing
             
             # Execute operation for this item
             result = self.execute(item_inputs, context)

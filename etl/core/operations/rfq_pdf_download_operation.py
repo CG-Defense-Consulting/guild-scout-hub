@@ -106,15 +106,55 @@ class RfqPdfDownloadOperation(BaseOperation):
                 )
             
         except Exception as e:
-            error_msg = f"RFQ PDF download operation failed: {str(e)}"
+            error_msg = f"RFQ PDF download failed for {solicitation_number}: {str(e)}"
             logger.error(error_msg, exc_info=True)
-            
             return OperationResult(
                 success=False,
                 status=OperationStatus.FAILED,
                 error=error_msg,
-                metadata={'solicitation_number': inputs.get('solicitation_number', 'unknown'), 'error_type': type(e).__name__}
+                metadata={'solicitation_number': solicitation_number}
             )
+    
+    def can_apply_to_batch(self) -> bool:
+        """This operation can be applied to batches of solicitation numbers."""
+        return True
+    
+    def apply_to_batch(self, items: List[Any], inputs: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> List[OperationResult]:
+        """
+        Apply RFQ PDF download to a batch of solicitation numbers.
+        
+        Args:
+            items: List of solicitation numbers to process
+            inputs: Operation inputs
+            context: Shared workflow context
+            
+        Returns:
+            List of OperationResult objects for each solicitation number
+        """
+        results = []
+        total_items = len(items)
+        
+        logger.info(f"Processing batch of {total_items} solicitation numbers")
+        
+        for i, solicitation_number in enumerate(items):
+            logger.info(f"Processing solicitation {i+1}/{total_items}: {solicitation_number}")
+            
+            # Create inputs for this specific solicitation number
+            solicitation_inputs = inputs.copy()
+            solicitation_inputs['solicitation_number'] = solicitation_number
+            
+            # Execute download for this solicitation number
+            result = self._execute(solicitation_inputs, context)
+            results.append(result)
+            
+            # Brief pause between downloads to avoid overwhelming the server
+            if i < total_items - 1:
+                time.sleep(1)
+        
+        # Log batch completion
+        successful = len([r for r in results if r.success])
+        logger.info(f"Batch processing completed. {successful}/{total_items} successful")
+        return results
     
     def _is_consent_page(self, driver) -> bool:
         """Check if we're on a consent page."""
