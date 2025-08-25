@@ -827,11 +827,11 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                     variant="outline" 
                     className="justify-start"
                     onClick={() => handleExtractAmsc()}
-                    disabled={isExtractingAmsc || contract.cde_g !== null}
-                    title={contract.cde_g !== null ? 'AMSC code already extracted' : 'Extract AMSC code from NSN details'}
+                    disabled={isExtractingAmsc || !!contract.cde_g}
+                    title={!!contract.cde_g ? 'AMSC code already extracted' : 'Extract AMSC code from NSN details'}
                   >
                     <Database className="w-4 h-4 mr-2" />
-                    {isExtractingAmsc ? 'Extracting AMSC...' : 'Extract NSN AMSC Code'}
+                    {isExtractingAmsc ? 'Extracting AMSC...' : 'Extract AMSC Code'}
                   </Button>
                 </div>
               </CardContent>

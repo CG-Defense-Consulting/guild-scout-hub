@@ -257,7 +257,7 @@ export const useRfqDataWithSearch = (filters?: Record<string, any>, searchTerm?:
       console.log('=== End Query Execution ===');
       return [];
     },
-    enabled: !!(filters || searchTerm), // Only run when we have filters or search
+    enabled: true, // Always run the query to show all data by default
   });
 };
 
