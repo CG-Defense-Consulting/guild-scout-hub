@@ -40,73 +40,141 @@ class NsnExtractionOperation(BaseOperation):
 
     def _execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> OperationResult:
         """
-        Execute NSN extraction operation.
+        Execute the NSN extraction operation.
         
         Args:
-            inputs: Operation inputs including nsn and optional parameters
-            context: Shared workflow context containing the Chrome driver
+            inputs: Operation inputs containing 'nsn' or 'item' (for batch processing) and optional parameters
+            context: Shared context (should contain chrome_driver)
             
         Returns:
             OperationResult with extracted data or error information
         """
         try:
-            # Get driver from context (set by ChromeSetupOperation)
             driver = context.get('chrome_driver')
             if not driver:
                 return OperationResult(
-                    success=False,
-                    status=OperationStatus.FAILED,
-                    error="Chrome driver not found in context. Make sure ChromeSetupOperation runs first.",
-                    metadata={'context_keys': list(context.keys())}
+                    success=False, 
+                    status=OperationStatus.FAILED, 
+                    error="Chrome driver not found in context."
                 )
             
-            nsn = inputs['nsn']
-            timeout = inputs.get('timeout', 30)
-            retry_attempts = inputs.get('retry_attempts', 3)
-            extract_fields = inputs.get('extract_fields', ['amsc_code', 'description', 'part_number'])
-            base_url = inputs.get('base_url', 'https://www.dibbs.bsm.dla.mil/RFQ/RFQNsn.aspx')
-            check_closed_status = inputs.get('check_closed_status', False)
-            
-            logger.info(f"Starting NSN extraction for NSN: {nsn}")
-            
-            # Extract NSN data
-            nsn_data = self._extract_nsn_data(
-                driver, nsn, base_url, timeout, retry_attempts, extract_fields
-            )
-            
-            if not nsn_data:
+            # Handle both direct nsn input and batch item input
+            nsn = inputs.get('nsn') or inputs.get('item')
+            if not nsn:
                 return OperationResult(
                     success=False,
                     status=OperationStatus.FAILED,
-                    error=f"Failed to extract data for NSN: {nsn}",
-                    metadata={'nsn': nsn, 'attempts': retry_attempts}
+                    error="Missing required input: 'nsn' or 'item'"
                 )
             
-            # Check for closed solicitation status if requested
+            timeout = inputs.get('timeout', 30)
+            retry_attempts = inputs.get('retry_attempts', 3)
+            extract_fields = inputs.get('extract_fields', ['amsc_code', 'description', 'unit_of_issue'])
+            base_url = inputs.get('base_url', 'https://www.dibbs.bsm.dla.mil')
+            check_closed_status = inputs.get('check_closed_status', True)
+            
+            logger.info(f"🔍 NSN EXTRACTION: Starting NSN extraction for: {nsn}")
+            logger.info(f"🔍 NSN EXTRACTION: Using base URL: {base_url}")
+            logger.info(f"🔍 NSN EXTRACTION: Timeout: {timeout}s, Retry attempts: {retry_attempts}")
+            logger.info(f"🔍 NSN EXTRACTION: Extract fields: {extract_fields}")
+            logger.info(f"🔍 NSN EXTRACTION: Check closed status: {check_closed_status}")
+            
+            # Navigate to the NSN page
+            nsn_url = f"{base_url}/RFQ/NSN/{nsn}"
+            logger.info(f"🔍 NSN EXTRACTION: Navigating to NSN URL: {nsn_url}")
+            
+            driver.get(nsn_url)
+            logger.info(f"🔍 NSN EXTRACTION: Page loaded, current URL: {driver.current_url}")
+            logger.info(f"🔍 NSN EXTRACTION: Page title: {driver.title}")
+            
+            # Wait for page to load
+            time.sleep(3)
+            logger.info(f"🔍 NSN EXTRACTION: Waited 3 seconds for page load")
+            
+            # Check if we're on the right page
+            if nsn not in driver.current_url:
+                logger.warning(f"⚠️ NSN EXTRACTION: URL doesn't contain NSN {nsn}, current URL: {driver.current_url}")
+            
+            # Get page source for analysis
+            page_source = driver.page_source
+            logger.info(f"🔍 NSN EXTRACTION: Page source length: {len(page_source)} characters")
+            
+            # Check for closed solicitation status first
             if check_closed_status:
-                logger.info(f"Checking closed solicitation status for NSN: {nsn}")
+                logger.info(f"🔍 NSN EXTRACTION: Checking for closed solicitation status...")
                 closed_status = self._check_closed_solicitation_status(driver, nsn)
-                nsn_data['closed'] = closed_status
-                logger.info(f"Closed solicitation status for NSN {nsn}: {closed_status}")
+                logger.info(f"🔍 NSN EXTRACTION: Closed status check result: {closed_status}")
+                
+                if closed_status:
+                    logger.info(f"✅ NSN EXTRACTION: NSN {nsn} is CLOSED - no open solicitations")
+                    return OperationResult(
+                        success=True,
+                        status=OperationStatus.COMPLETED,
+                        data={
+                            'nsn': nsn,
+                            'amsc_code': None,
+                            'description': None,
+                            'unit_of_issue': None,
+                            'is_closed': True,
+                            'closed_reason': 'No open solicitations found'
+                        },
+                        metadata={'closed_status_detected': True, 'final_url': driver.current_url}
+                    )
             
-            logger.info(f"Successfully extracted data for NSN: {nsn}")
+            # Extract AMSC code
+            logger.info(f"🔍 NSN EXTRACTION: Extracting AMSC code...")
+            amsc_code = self._extract_amsc_code(driver, nsn)
+            logger.info(f"🔍 NSN EXTRACTION: AMSC code extracted: {amsc_code}")
             
-            return OperationResult(
-                success=True,
-                status=OperationStatus.COMPLETED,
-                data=nsn_data,
-                metadata={'nsn': nsn, 'fields_extracted': list(nsn_data.keys())}
-            )
+            # Extract description
+            logger.info(f"🔍 NSN EXTRACTION: Extracting description...")
+            description = self._extract_description(driver, nsn)
+            logger.info(f"🔍 NSN EXTRACTION: Description extracted: {description[:100] if description else None}...")
             
+            # Extract unit of issue
+            logger.info(f"🔍 NSN EXTRACTION: Extracting unit of issue...")
+            unit_of_issue = self._extract_unit_of_issue(driver, nsn)
+            logger.info(f"🔍 NSN EXTRACTION: Unit of issue extracted: {unit_of_issue}")
+            
+            # Check if we got any useful data
+            extracted_data = {
+                'nsn': nsn,
+                'amsc_code': amsc_code,
+                'description': description,
+                'unit_of_issue': unit_of_issue,
+                'is_closed': False
+            }
+            
+            logger.info(f"🔍 NSN EXTRACTION: Final extracted data summary:")
+            logger.info(f"🔍 NSN EXTRACTION:   - NSN: {nsn}")
+            logger.info(f"🔍 NSN EXTRACTION:   - AMSC Code: {amsc_code}")
+            logger.info(f"🔍 NSN EXTRACTION:   - Description: {description[:50] if description else None}...")
+            logger.info(f"🔍 NSN EXTRACTION:   - Unit of Issue: {unit_of_issue}")
+            logger.info(f"🔍 NSN EXTRACTION:   - Is Closed: False")
+            
+            if amsc_code or description or unit_of_issue:
+                logger.info(f"✅ NSN EXTRACTION: Successfully extracted data for NSN: {nsn}")
+                return OperationResult(
+                    success=True,
+                    status=OperationStatus.COMPLETED,
+                    data=extracted_data,
+                    metadata={'data_extracted': True, 'final_url': driver.current_url}
+                )
+            else:
+                logger.warning(f"⚠️ NSN EXTRACTION: No data extracted for NSN: {nsn}")
+                return OperationResult(
+                    success=True,
+                    status=OperationStatus.COMPLETED,
+                    data=extracted_data,
+                    metadata={'data_extracted': False, 'final_url': driver.current_url}
+                )
+                
         except Exception as e:
-            error_msg = f"NSN extraction operation failed: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            
+            logger.error(f"❌ NSN EXTRACTION: Error extracting NSN data for {nsn}: {str(e)}")
             return OperationResult(
                 success=False,
                 status=OperationStatus.FAILED,
-                error=error_msg,
-                metadata={'nsn': inputs.get('nsn', 'unknown'), 'error_type': type(e).__name__}
+                error=f"NSN extraction operation failed: {str(e)}"
             )
 
     def _extract_nsn_data(self, driver, nsn: str, base_url: str, timeout: int,

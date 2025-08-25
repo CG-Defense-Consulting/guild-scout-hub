@@ -44,64 +44,87 @@ class ConsentPageOperation(BaseOperation):
         Execute the consent page operation.
         
         Args:
-            inputs: Operation inputs containing 'driver' and optionally 'timeout', 'consent_selectors', 'url'
-            context: Shared context (not used for this operation)
+            inputs: Operation inputs
+            context: Shared context (should contain chrome_driver)
             
         Returns:
-            OperationResult with consent handling success status
+            OperationResult with success status and metadata
         """
         try:
-            driver = inputs['driver']
-            timeout = inputs.get('timeout', 10)
-            consent_selectors = inputs.get('consent_selectors', None)
-            url = inputs.get('url', None)
-            
-            logger.info("Checking for consent page...")
-            
-            # If URL provided, navigate to it first
-            if url:
-                logger.info(f"Navigating to: {url}")
-                driver.get(url)
-            
-            # Handle consent page
-            consent_handled = self._handle_consent_page(driver, timeout, consent_selectors)
-            
-            if consent_handled:
-                logger.info("Consent page handled successfully")
+            driver = context.get('chrome_driver')
+            if not driver:
                 return OperationResult(
-                    success=True,
-                    status=OperationStatus.COMPLETED,
-                    data={
-                        'consent_handled': True,
-                        'consent_detected': True
-                    },
-                    metadata={
-                        'timeout_used': timeout,
-                        'url_processed': url
-                    }
+                    success=False, 
+                    status=OperationStatus.FAILED, 
+                    error="Chrome driver not found in context."
                 )
+            
+            nsn = inputs.get('nsn')
+            timeout = inputs.get('timeout', 30)
+            retry_attempts = inputs.get('retry_attempts', 3)
+            base_url = inputs.get('base_url', 'https://www.dibbs.bsm.dla.mil')
+            
+            logger.info(f"🔄 CONSENT PAGE: Starting consent page handling for NSN: {nsn}")
+            logger.info(f"🔄 CONSENT PAGE: Using base URL: {base_url}")
+            logger.info(f"🔄 CONSENT PAGE: Timeout: {timeout}s, Retry attempts: {retry_attempts}")
+            
+            # Navigate to the NSN page
+            nsn_url = f"{base_url}/RFQ/NSN/{nsn}"
+            logger.info(f"🔄 CONSENT PAGE: Navigating to NSN URL: {nsn_url}")
+            
+            driver.get(nsn_url)
+            logger.info(f"🔄 CONSENT PAGE: Page loaded, current URL: {driver.current_url}")
+            
+            # Wait for page to load
+            time.sleep(2)
+            logger.info(f"🔄 CONSENT PAGE: Waited 2 seconds for page load")
+            
+            # Check if we're on a consent page
+            consent_elements = driver.find_elements(By.XPATH, "//input[@type='submit' and @value='I Agree']")
+            logger.info(f"🔄 CONSENT PAGE: Found {len(consent_elements)} consent elements")
+            
+            if consent_elements:
+                logger.info(f"🔄 CONSENT PAGE: Consent page detected, clicking 'I Agree'")
+                consent_elements[0].click()
+                logger.info(f"🔄 CONSENT PAGE: 'I Agree' clicked")
+                
+                # Wait for redirect
+                time.sleep(3)
+                logger.info(f"🔄 CONSENT PAGE: Waited 3 seconds after consent, current URL: {driver.current_url}")
+                
+                # Check if we're now on the actual NSN page
+                if "NSN" in driver.current_url and nsn in driver.current_url:
+                    logger.info(f"✅ CONSENT PAGE: Successfully passed consent page for NSN: {nsn}")
+                    return OperationResult(
+                        success=True,
+                        status=OperationStatus.COMPLETED,
+                        metadata={'nsn': nsn, 'consent_passed': True, 'final_url': driver.current_url}
+                    )
+                else:
+                    logger.warning(f"⚠️ CONSENT PAGE: Consent passed but URL doesn't match expected NSN page")
+                    logger.warning(f"⚠️ CONSENT PAGE: Expected NSN: {nsn}, Current URL: {driver.current_url}")
+                    return OperationResult(
+                        success=False,
+                        status=OperationStatus.FAILED,
+                        error=f"Consent passed but redirected to unexpected URL: {driver.current_url}"
+                    )
             else:
-                logger.info("No consent page detected or consent not required")
+                logger.info(f"✅ CONSENT PAGE: No consent page detected for NSN: {nsn}, proceeding directly")
+                logger.info(f"✅ CONSENT PAGE: Current page title: {driver.title}")
+                logger.info(f"✅ CONSENT PAGE: Current page source length: {len(driver.page_source)}")
+                
                 return OperationResult(
                     success=True,
                     status=OperationStatus.COMPLETED,
-                    data={
-                        'consent_handled': False,
-                        'consent_detected': False
-                    },
-                    metadata={
-                        'timeout_used': timeout,
-                        'url_processed': url
-                    }
+                    metadata={'nsn': nsn, 'consent_passed': False, 'final_url': driver.current_url}
                 )
                 
         except Exception as e:
-            error_msg = f"Consent page operation failed: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            logger.error(f"❌ CONSENT PAGE: Error handling consent page for NSN {nsn}: {str(e)}")
             return OperationResult(
                 success=False,
                 status=OperationStatus.FAILED,
-                error=error_msg
+                error=f"Consent page operation failed: {str(e)}"
             )
     
     def _handle_consent_page(self, driver, timeout: int, custom_selectors: Optional[list] = None) -> bool:

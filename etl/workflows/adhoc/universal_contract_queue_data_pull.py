@@ -33,7 +33,7 @@ from core.operations import (
     NsnExtractionOperation,
     SupabaseUploadOperation
 )
-from core.workflow_orchestrator import WorkflowOrchestrator
+from core.workflow_orchestrator import WorkflowOrchestrator, WorkflowStatus
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -59,7 +59,7 @@ class UniversalContractQueueDataPuller:
     
     def query_contracts_needing_processing(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        Simple query to find contracts needing AMSC codes.
+        Single query to find contracts needing AMSC codes using proper JOIN.
         
         Args:
             limit: Optional limit on number of contracts to process
@@ -70,27 +70,36 @@ class UniversalContractQueueDataPuller:
         try:
             logger.info("Querying contracts needing AMSC codes...")
             
-            # Get all contracts from universal_contract_queue
-            ucq_result = self.supabase.from_('universal_contract_queue').select('id').execute()
+            # Debug: First check what data exists
+            logger.info("DEBUG: Checking raw data in tables...")
             
-            if not ucq_result.data:
+            # Check universal_contract_queue
+            ucq_debug = self.supabase.table('universal_contract_queue').select('id').limit(5).execute()
+            logger.info(f"DEBUG: UCQ sample: {ucq_debug.data}")
+            
+            # Check rfq_index_extract
+            rie_debug = self.supabase.table('rfq_index_extract').select('id,cde_g,solicitation_number,national_stock_number').limit(5).execute()
+            logger.info(f"DEBUG: RIE sample: {rie_debug.data}")
+            
+            # Single JOIN query to get contracts with missing AMSC codes
+            # Using proper Supabase syntax with table() and inner join
+            result = self.supabase.table('universal_contract_queue').select(
+                "id,rfq_index_extract!inner(cde_g,solicitation_number,national_stock_number)"
+            ).execute()
+            
+            if not result.data:
                 logger.info("No contracts found in universal_contract_queue")
                 return []
             
-            # Get all records from rfq_index_extract
-            rie_result = self.supabase.from_('rfq_index_extract').select('id, cde_g, solicitation_number, national_stock_number').execute()
-            rie_lookup = {record['id']: record for record in (rie_result.data or [])}
-            
-            # Filter contracts that need AMSC codes
+            # Transform the nested result structure and filter for missing AMSC codes
             contracts_needing_processing = []
-            for contract in ucq_result.data:
+            for contract in result.data:
                 contract_id = contract['id']
-                rie_data = rie_lookup.get(contract_id, {})
+                rie_data = contract['rfq_index_extract']
                 cde_g = rie_data.get('cde_g')
                 
-                # Check if AMSC code is missing
-                if not cde_g or cde_g == '':
-                    # Get the data we need from rfq_index_extract
+                # Check if AMSC code is missing (None, empty string, or whitespace)
+                if not cde_g or (isinstance(cde_g, str) and cde_g.strip() == ''):
                     contract_data = {
                         'id': contract_id,
                         'solicitation_number': rie_data.get('solicitation_number'),
@@ -419,49 +428,34 @@ def execute_universal_contract_queue_workflow(headless: bool = True, timeout: in
                 'message': 'No contracts need processing based on business logic'
             }
         
-        # Execute workflow
+        # Execute the workflow
         logger.info("Starting universal contract queue data pull workflow execution")
-        results = workflow.execute()
+        execution_result = workflow.execute()
         
-        # Get workflow status
-        status = workflow.get_status()
-        context = workflow.get_context()
-        
-        # Prepare summary
-        summary = {
-            'workflow_name': workflow.name,
-            'status': status.value,
-            'steps_executed': len(results),
-            'results': results,
-            'context': context
-        }
-        
-        # Add step-specific summaries
-        if len(results) >= 1:
-            # Chrome setup results
-            chrome_result = results[0]
-            summary['chrome_setup'] = {
-                'success': chrome_result.success,
-                'status': chrome_result.status.value,
-                'metadata': chrome_result.metadata
+        if execution_result['status'] == WorkflowStatus.COMPLETED:
+            logger.info("Universal contract queue data pull workflow completed successfully")
+            results = execution_result['results']
+            logger.info(f"Workflow completed with {len(results)} step results")
+            
+            # Log step results
+            for i, result in enumerate(results):
+                logger.info(f"Step {i+1}: {result.status} - {result.metadata if result.metadata else 'No metadata'}")
+            
+            return {
+                'success': True,
+                'status': 'completed',
+                'steps_executed': len(results),
+                'results': results
             }
-            
-            # Add other step results if they exist
-            if len(results) > 1:
-                summary['consent_page'] = {
-                    'success': results[1].success,
-                    'status': results[1].status.value
-                }
-            
-            if len(results) > 2:
-                summary['nsn_extraction'] = {
-                    'success': results[2].success,
-                    'status': results[2].status.value
-                }
-        
-        logger.info(f"Universal contract queue data pull workflow completed with status: {status.value}")
-        
-        return summary
+        else:
+            error_msg = execution_result.get('error', 'Unknown workflow error')
+            logger.error(f"Universal contract queue data pull workflow failed: {error_msg}")
+            return {
+                'success': False,
+                'status': 'failed',
+                'error': error_msg,
+                'steps_executed': len(execution_result.get('results', []))
+            }
         
     except Exception as e:
         error_msg = f"Universal contract queue data pull workflow failed: {str(e)}"
