@@ -59,12 +59,7 @@ class UniversalContractQueueDataPuller:
     
     def query_contracts_needing_processing(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        INTERNALLY query universal_contract_queue for contracts that need processing.
-        
-        This method applies predefined conditions to filter contracts:
-        - Contracts with missing AMSC codes (cde_g is NULL)
-        - Contracts with missing RFQ PDFs
-        - Contracts with unknown closed status
+        Simple query to find contracts needing AMSC codes.
         
         Args:
             limit: Optional limit on number of contracts to process
@@ -73,119 +68,59 @@ class UniversalContractQueueDataPuller:
             List of contract data that needs processing
         """
         try:
-            logger.info("Querying universal_contract_queue for contracts needing processing...")
+            logger.info("Querying contracts needing AMSC codes...")
             
-            # Use standard Supabase query instead of exec_sql
-            # First, get all contracts from universal_contract_queue
-            ucq_result = self.supabase.from_('universal_contract_queue').select('*').execute()
-            
-            logger.info(f"universal_contract_queue query result: {len(ucq_result.data) if ucq_result.data else 0} records")
-            if ucq_result.data:
-                logger.info(f"Sample UCQ record: {ucq_result.data[0]}")
+            # Get all contracts from universal_contract_queue
+            ucq_result = self.supabase.from_('universal_contract_queue').select('id').execute()
             
             if not ucq_result.data:
                 logger.info("No contracts found in universal_contract_queue")
                 return []
             
-            # Then get all records from rfq_index_extract
-            rie_result = self.supabase.from_('rfq_index_extract').select('*').execute()
-            logger.info(f"rfq_index_extract query result: {len(rie_result.data) if rie_result.data else 0} records")
-            if rie_result.data:
-                logger.info(f"Sample RIE record: {rie_result.data[0]}")
+            # Get all records from rfq_index_extract
+            rie_result = self.supabase.from_('rfq_index_extract').select('id, cde_g, solicitation_number, national_stock_number').execute()
+            rie_lookup = {record['id']: record for record in (rie_result.data or [])}
             
-            rie_data = rie_result.data if rie_result.data else []
-            
-            # Create a lookup for rfq_index_extract data
-            rie_lookup = {record['id']: record for record in rie_data}
-            logger.info(f"RIE lookup created with {len(rie_lookup)} keys: {list(rie_lookup.keys())[:5] if rie_lookup else 'None'}")
-            
-            # Process contracts to find those needing processing
+            # Filter contracts that need AMSC codes
             contracts_needing_processing = []
-            
             for contract in ucq_result.data:
                 contract_id = contract['id']
+                rie_data = rie_lookup.get(contract_id, {})
+                cde_g = rie_data.get('cde_g')
                 
-                logger.info(f"Processing contract {contract_id}")
-                
-                # Get existing data from rfq_index_extract using the ID as foreign key
-                existing_data = rie_lookup.get(contract_id, {})
-                existing_amsc = existing_data.get('cde_g')  # ONLY check rfq_index_extract.cde_g (text field)
-                existing_closed_status = existing_data.get('closed')
-                rfq_index_id = existing_data.get('id')
-                
-                logger.info(f"Contract {contract_id}: existing_amsc='{existing_amsc}' (type: {type(existing_amsc)}), existing_closed_status={existing_closed_status}, rfq_index_id={rfq_index_id}")
-                logger.info(f"RIE lookup key {contract_id} exists: {contract_id in rie_lookup}")
-                
-                # Check if this contract needs processing
-                # ONLY check rfq_index_extract.cde_g (text field) - ignore universal_contract_queue.cde_g (deprecated boolean)
-                needs_processing = (
-                    not existing_amsc or (isinstance(existing_amsc, str) and existing_amsc.strip() == '') or  # Missing AMSC code (None, empty string, or whitespace)
-                    existing_closed_status is None or  # Missing closed status
-                    rfq_index_id is None  # Missing RFQ index record
-                )
-                
-                if needs_processing:
-                    logger.info(f"Contract {contract_id} needs processing - AMSC: {'missing' if (not existing_amsc or (isinstance(existing_amsc, str) and existing_amsc.strip() == '')) else 'present'}, Closed: {'missing' if existing_closed_status is None else 'present'}, RFQ Index: {'missing' if rfq_index_id is None else 'present'}")
-                else:
-                    logger.info(f"Contract {contract_id} does NOT need processing - all data present")
-                
-                if needs_processing:
+                # Check if AMSC code is missing
+                if not cde_g or cde_g == '':
+                    # Get the data we need from rfq_index_extract
                     contract_data = {
-                        'contract_id': contract_id,
-                        'solicitation_number': contract.get('solicitation_number'),
-                        'national_stock_number': contract.get('national_stock_number'),
-                        'contract_title': contract.get('contract_title'),
-                        'contracting_office': contract.get('contracting_office'),
-                        'contract_value': contract.get('contract_value'),
-                        'contract_status': contract.get('contract_status'),
-                        'award_date': contract.get('award_date'),
-                        'contractor_name': contract.get('contractor_name'),
-                        'existing_amsc': existing_amsc,
-                        'existing_closed_status': existing_closed_status,
-                        'rfq_index_id': rfq_index_id
+                        'id': contract_id,
+                        'solicitation_number': rie_data.get('solicitation_number'),
+                        'national_stock_number': rie_data.get('national_stock_number')
                     }
                     contracts_needing_processing.append(contract_data)
             
-            # Apply limit if specified
             if limit:
                 contracts_needing_processing = contracts_needing_processing[:limit]
             
-            contracts = contracts_needing_processing
-            logger.info(f"Found {len(contracts)} contracts needing processing")
-            
-            # Log summary of what needs processing
-            missing_amsc = len([c for c in contracts if not c.get('existing_amsc') or (isinstance(c.get('existing_amsc'), str) and c.get('existing_amsc').strip() == '')])
-            missing_closed = len([c for c in contracts if c.get('existing_closed_status') is None])
-            missing_rfq = len([c for c in contracts if c.get('rfq_index_id') is None])
-            
-            logger.info(f"Processing Summary:")
-            logger.info(f"  - Missing AMSC codes: {missing_amsc}")
-            logger.info(f"  - Missing closed status: {missing_closed}")
-            logger.info(f"  - Missing RFQ index: {missing_rfq}")
-            
-            return contracts
+            logger.info(f"Found {len(contracts_needing_processing)} contracts needing AMSC codes")
+            return contracts_needing_processing
             
         except Exception as e:
-            logger.error(f"Error querying contracts needing processing: {str(e)}")
+            logger.error(f"Error querying contracts: {str(e)}")
             raise
     
-    def check_rfq_pdf_exists(self, contract_id: str) -> bool:
+    def check_rfq_pdf_exists(self, solicitation_number: str) -> bool:
         """
-        Check if RFQ PDF exists in the Supabase bucket for a given contract.
+        Check if RFQ PDF exists in the Supabase bucket using solicitation number.
         
         Args:
-            contract_id: Contract ID to check
+            solicitation_number: Solicitation number to check
             
         Returns:
             True if PDF exists, False otherwise
         """
         try:
-            # Check if PDF exists in the bucket
-            # This would need to be implemented based on your storage structure
-            # For now, we'll assume a naming convention: {contract_id}.pdf
-            
-            bucket_name = "docs"  # Your bucket name
-            file_path = f"rfq_pdfs/{contract_id}.pdf"
+            bucket_name = "docs"
+            file_path = f"rfq_pdfs/{solicitation_number}.pdf"
             
             # Try to get file metadata - if it exists, the file exists
             result = self.supabase.storage.from_(bucket_name).list(path="rfq_pdfs")
@@ -193,29 +128,24 @@ class UniversalContractQueueDataPuller:
             if result:
                 # Check if our specific file exists in the list
                 for file_info in result:
-                    if file_info.get('name') == f"{contract_id}.pdf":
-                        logger.info(f"RFQ PDF found for contract {contract_id}")
+                    if file_info.get('name') == f"{solicitation_number}.pdf":
+                        logger.info(f"RFQ PDF found for solicitation {solicitation_number}")
                         return True
                 
-                logger.info(f"RFQ PDF NOT found for contract {contract_id}")
+                logger.info(f"RFQ PDF NOT found for solicitation {solicitation_number}")
                 return False
             else:
-                logger.info(f"RFQ PDF NOT found for contract {contract_id}")
+                logger.info(f"RFQ PDF NOT found for solicitation {solicitation_number}")
                 return False
                 
         except Exception as e:
-            logger.error(f"Error checking RFQ PDF existence for contract {contract_id}: {str(e)}")
+            logger.error(f"Error checking RFQ PDF existence for solicitation {solicitation_number}: {str(e)}")
             # If we can't determine, assume it doesn't exist to be safe
             return False
     
     def analyze_contract_data_gaps(self, contracts: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
         """
         Analyze contracts to determine what data is missing and needs to be pulled.
-        
-        This implements the specific business logic:
-        1. Check RFQ PDF existence first
-        2. If PDF doesn't exist, check AMSC code status
-        3. Apply conditional logic based on both conditions
         
         Args:
             contracts: List of contracts from universal_contract_queue
@@ -226,69 +156,36 @@ class UniversalContractQueueDataPuller:
         gaps = {}
         
         for contract in contracts:
-            contract_id = contract['contract_id']
+            contract_id = contract['id']
+            solicitation_number = contract.get('solicitation_number')
+            nsn = contract.get('national_stock_number')
+            
             contract_gaps = {
-                'needs_amsc': False,
+                'needs_amsc': True,  # Always need AMSC code if we're here
                 'needs_rfq_pdf': False,
-                'needs_closed_status': False,
-                'should_process': False,  # Whether we should run any operations
-                'action_reason': '',      # Why we're processing or not
-                'nsn': contract.get('national_stock_number'),
-                'solicitation_number': contract.get('solicitation_number'),
-                'existing_amsc': contract.get('existing_amsc'),
-                'existing_closed_status': contract.get('existing_closed_status'),
+                'should_process': True,
+                'action_reason': '',
+                'nsn': nsn,
+                'solicitation_number': solicitation_number,
                 'rfq_pdf_exists': False,
-                'contract_data': contract  # Keep full contract data for reference
+                'contract_data': contract
             }
             
-            # Debug logging for AMSC code analysis
-            logger.debug(f"Analyzing contract {contract_id}: existing_amsc='{contract_gaps['existing_amsc']}' (type: {type(contract_gaps['existing_amsc'])})")
-            logger.debug(f"  - AMSC empty check: {not contract_gaps['existing_amsc'] or (isinstance(contract_gaps['existing_amsc'], str) and contract_gaps['existing_amsc'].strip() == '')}")
-            logger.debug(f"  - AMSC None check: {contract_gaps['existing_amsc'] is None}")
-            logger.debug(f"  - AMSC string check: {contract_gaps['existing_amsc'] == '' if isinstance(contract_gaps['existing_amsc'], str) else 'N/A'}")
-            logger.debug(f"  - AMSC whitespace check: {(isinstance(contract_gaps['existing_amsc'], str) and contract_gaps['existing_amsc'].strip() == '') if isinstance(contract_gaps['existing_amsc'], str) else 'N/A'}")
-            
             try:
-                # FIRST: Check if RFQ PDF exists in Supabase bucket
-                rfq_pdf_exists = self.check_rfq_pdf_exists(contract_id)
+                # Check if RFQ PDF exists using solicitation number
+                rfq_pdf_exists = self.check_rfq_pdf_exists(solicitation_number)
                 contract_gaps['rfq_pdf_exists'] = rfq_pdf_exists
                 
                 if rfq_pdf_exists:
-                    # RFQ PDF exists - check if we still need other data
-                    needs_other_data = (
-                        not contract_gaps['existing_amsc'] or (isinstance(contract_gaps['existing_amsc'], str) and contract_gaps['existing_amsc'].strip() == '') or
-                        contract_gaps['existing_closed_status'] is None
-                    )
-                    
-                    if needs_other_data:
-                        # PDF exists but we need other data
-                        contract_gaps['needs_amsc'] = not contract_gaps['existing_amsc'] or (isinstance(contract_gaps['existing_amsc'], str) and contract_gaps['existing_amsc'].strip() == '')
-                        contract_gaps['needs_closed_status'] = contract_gaps['existing_closed_status'] is None
-                        contract_gaps['should_process'] = True
-                        contract_gaps['action_reason'] = 'RFQ PDF exists but missing other data - will extract missing data'
-                        logger.info(f"Contract {contract_id}: RFQ PDF exists but missing other data - will process")
-                    else:
-                        # PDF exists and all other data exists - do nothing
-                        contract_gaps['should_process'] = False
-                        contract_gaps['action_reason'] = 'RFQ PDF exists and all data complete - no processing needed'
-                        logger.info(f"Contract {contract_id}: RFQ PDF exists and all data complete - no processing needed")
-                    
+                    # PDF exists, only need AMSC code
+                    contract_gaps['needs_rfq_pdf'] = False
+                    contract_gaps['action_reason'] = 'RFQ PDF exists, only need AMSC code'
+                    logger.info(f"Contract {contract_id}: RFQ PDF exists, only need AMSC code")
                 else:
-                    # RFQ PDF does NOT exist - check AMSC code status
-                    if not contract_gaps['existing_amsc'] or (isinstance(contract_gaps['existing_amsc'], str) and contract_gaps['existing_amsc'].strip() == ''):
-                        # AMSC code is empty - extract AMSC code AND download RFQ PDF
-                        contract_gaps['needs_amsc'] = True
-                        contract_gaps['needs_rfq_pdf'] = True
-                        contract_gaps['needs_closed_status'] = True  # Check while we're there
-                        contract_gaps['should_process'] = True
-                        contract_gaps['action_reason'] = 'RFQ PDF missing AND AMSC code empty - will extract both'
-                        logger.info(f"Contract {contract_id}: RFQ PDF missing AND AMSC code empty - will process")
-                        
-                    else:
-                        # AMSC code is filled but RFQ PDF is missing - do nothing
-                        contract_gaps['should_process'] = False
-                        contract_gaps['action_reason'] = 'RFQ PDF missing but AMSC code exists - PDF issue, not touching'
-                        logger.info(f"Contract {contract_id}: RFQ PDF missing but AMSC code exists - not processing")
+                    # PDF missing, need both AMSC code and RFQ PDF
+                    contract_gaps['needs_rfq_pdf'] = True
+                    contract_gaps['action_reason'] = 'RFQ PDF missing, need both AMSC code and RFQ PDF'
+                    logger.info(f"Contract {contract_id}: RFQ PDF missing, need both AMSC code and RFQ PDF")
                         
             except Exception as e:
                 logger.error(f"Error analyzing contract {contract_id}: {str(e)}")
@@ -305,12 +202,7 @@ class UniversalContractQueueDataPuller:
                                     headless: bool = True, timeout: int = 30,
                                     retry_attempts: int = 3, batch_size: int = 50) -> WorkflowOrchestrator:
         """
-        Create a workflow based on the data gaps identified for the contracts.
-        
-        This workflow implements the business logic:
-        - Only process contracts that need data extraction
-        - Extract AMSC code and check for closed status while on the NSN page
-        - Download RFQ PDF for the same contracts when needed
+        Create a workflow for extracting AMSC codes and downloading RFQ PDFs.
         
         Args:
             contracts: List of contracts from universal_contract_queue
@@ -331,23 +223,22 @@ class UniversalContractQueueDataPuller:
         ]
         
         if not contracts_to_process:
-            logger.info("No contracts need processing based on business logic")
-            # Return empty workflow
+            logger.info("No contracts need processing")
             workflow = WorkflowOrchestrator(
                 name="universal_contract_queue_data_pull",
                 description="No contracts need processing"
             )
             return workflow
         
-        logger.info(f"Creating workflow for {len(contracts_to_process)} contracts that need processing")
+        logger.info(f"Creating workflow for {len(contracts_to_process)} contracts")
         
         # Create workflow orchestrator
         workflow = WorkflowOrchestrator(
             name="universal_contract_queue_data_pull",
-            description=f"Pull data for {len(contracts_to_process)} contracts based on business logic"
+            description=f"Extract AMSC codes and download RFQ PDFs for {len(contracts_to_process)} contracts"
         )
         
-        # Step 1: Chrome Setup (runs once, shared across all operations)
+        # Step 1: Chrome Setup (runs once)
         chrome_setup = ChromeSetupOperation(headless=headless)
         workflow.add_step(
             operation=chrome_setup,
@@ -356,67 +247,33 @@ class UniversalContractQueueDataPuller:
             batch_config={}
         )
         
-        # Step 2: Consent Page Handling (applied to batch of NSNs that need processing)
-        # Only process NSNs that need data extraction
-        nsn_urls = []
+        # Step 2: Extract AMSC codes for all contracts
         nsn_list = []
-        nsn_to_contract_map = {}
-        
         for contract_id in contracts_to_process:
             gaps = contract_gaps[contract_id]
-            if gaps.get('should_process'):
-                nsn = gaps.get('nsn')
-                if nsn:
-                    nsn_list.append(nsn)
-                    nsn_to_contract_map[nsn] = contract_id
-                    base_url = "https://www.dibbs.bsm.dla.mil/RFQ/RFQNsn.aspx"
-                    nsn_urls.append(f"{base_url}?value={nsn}&category=nsn")
+            nsn = gaps.get('nsn')
+            if nsn:
+                nsn_list.append(nsn)
         
-        if nsn_urls:
-            consent_page = ConsentPageOperation()
-            workflow.add_step(
-                operation=consent_page,
-                inputs={'timeout': timeout},
-                depends_on=['chrome_setup'],
-                batch_config={'items': nsn_urls}
-            )
-            
-            # Step 3: NSN Data Extraction (for contracts that need AMSC codes or closed status)
-            # This will also check for closed solicitation status while on the page
+        if nsn_list:
             nsn_extraction = NsnExtractionOperation()
-            nsn_inputs = {
-                'timeout': timeout,
-                'retry_attempts': retry_attempts,
-                'extract_fields': ['amsc_code'],  # Focus on AMSC codes
-                'check_closed_status': True  # Check for closed status while extracting
-            }
-            
             workflow.add_step(
                 operation=nsn_extraction,
-                inputs=nsn_inputs,
-                depends_on=['consent_page'],
-                batch_config={'items': nsn_list, 'contract_ids': list(nsn_to_contract_map.values())}
+                inputs={'timeout': timeout, 'retry_attempts': retry_attempts},
+                depends_on=['chrome_setup'],
+                batch_config={'items': nsn_list}
             )
-            
-            # Step 4: Supabase Upload (AMSC codes and closed status)
-            supabase_upload = SupabaseUploadOperation()
-            upload_inputs = {
-                'batch_size': batch_size,
-                'table_name': 'rfq_index_extract'
-            }
-            
-            workflow.add_step(
-                operation=supabase_upload,
-                inputs=upload_inputs,
-                depends_on=['nsn_extraction'],
-                batch_config={}
-            )
-            
-            # Note: RFQ PDF downloading would be implemented here as a separate operation
-            # For now, we'll focus on AMSC codes and closed status
-            # The RFQ PDF operation would run in parallel or after NSN extraction
-            
-        logger.info("Universal contract queue data pull workflow created successfully")
+        
+        # Step 3: Download RFQ PDFs for contracts that need them
+        contracts_needing_pdfs = [
+            contract_id for contract_id in contracts_to_process
+            if contract_gaps[contract_id].get('needs_rfq_pdf', False)
+        ]
+        
+        if contracts_needing_pdfs:
+            # Add RFQ PDF download step here
+            logger.info(f"Will download RFQ PDFs for {len(contracts_needing_pdfs)} contracts")
+        
         return workflow
 
 def create_universal_contract_queue_workflow(headless: bool = True, timeout: int = 30,
