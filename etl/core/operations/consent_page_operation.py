@@ -6,6 +6,7 @@ It can be reused by any operation that needs to navigate through consent pages.
 """
 
 import logging
+import time
 from typing import Any, Dict, Optional
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -34,10 +35,10 @@ class ConsentPageOperation(BaseOperation):
         )
         
         # Set required inputs
-        self.set_required_inputs(['driver'])
+        self.set_required_inputs(['nsn'])
         
         # Set optional inputs
-        self.set_optional_inputs(['timeout', 'consent_selectors', 'url'])
+        self.set_optional_inputs(['timeout', 'retry_attempts', 'base_url'])
     
     def _execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> OperationResult:
         """
@@ -69,31 +70,58 @@ class ConsentPageOperation(BaseOperation):
             logger.info(f"🔄 CONSENT PAGE: Timeout: {timeout}s, Retry attempts: {retry_attempts}")
             
             # Navigate to the NSN page
-            nsn_url = f"{base_url}/RFQ/NSN/{nsn}"
+            nsn_url = f"{base_url}/rfq/rfqnsn.aspx?value={nsn}"
             logger.info(f"🔄 CONSENT PAGE: Navigating to NSN URL: {nsn_url}")
             
             driver.get(nsn_url)
             logger.info(f"🔄 CONSENT PAGE: Page loaded, current URL: {driver.current_url}")
             
             # Wait for page to load
-            time.sleep(2)
-            logger.info(f"🔄 CONSENT PAGE: Waited 2 seconds for page load")
+            time.sleep(1)  # Reduced from 2 seconds
+            logger.info(f"🔄 CONSENT PAGE: Waited 1 second for page load")
             
             # Check if we're on a consent page
-            consent_elements = driver.find_elements(By.XPATH, "//input[@type='submit' and @value='I Agree']")
-            logger.info(f"🔄 CONSENT PAGE: Found {len(consent_elements)} consent elements")
+            logger.info(f"🔄 CONSENT PAGE: Checking for consent buttons...")
+            
+            # Look for various possible consent buttons
+            possible_buttons = [
+                "//input[@type='submit' and @value='Ok']",
+                "//input[@type='submit' and @value='OK']", 
+                "//input[@type='submit' and @value='I Agree']",
+                "//input[@type='submit' and @value='Accept']",
+                "//input[@type='submit' and @value='Continue']",
+                "//button[contains(text(), 'Ok')]",
+                "//button[contains(text(), 'OK')]",
+                "//button[contains(text(), 'I Agree')]",
+                "//button[contains(text(), 'Accept')]",
+                "//button[contains(text(), 'Continue')]"
+            ]
+            
+            consent_elements = []
+            for selector in possible_buttons:
+                elements = driver.find_elements(By.XPATH, selector)
+                if elements:
+                    logger.info(f"🔄 CONSENT PAGE: Found button with selector: {selector}")
+                    consent_elements.extend(elements)
+            
+            logger.info(f"🔄 CONSENT PAGE: Found {len(consent_elements)} total consent elements")
+            
+            # Log page source for debugging
+            page_source = driver.page_source
+            logger.info(f"🔄 CONSENT PAGE: Page source length: {len(page_source)}")
+            logger.info(f"🔄 CONSENT PAGE: Page title: {driver.title}")
             
             if consent_elements:
-                logger.info(f"🔄 CONSENT PAGE: Consent page detected, clicking 'I Agree'")
+                logger.info(f"🔄 CONSENT PAGE: Consent page detected, clicking first button")
                 consent_elements[0].click()
-                logger.info(f"🔄 CONSENT PAGE: 'I Agree' clicked")
+                logger.info(f"🔄 CONSENT PAGE: Button clicked")
                 
                 # Wait for redirect
-                time.sleep(3)
-                logger.info(f"🔄 CONSENT PAGE: Waited 3 seconds after consent, current URL: {driver.current_url}")
+                time.sleep(2)  # Reduced from 5 seconds
+                logger.info(f"🔄 CONSENT PAGE: Waited 2 seconds after consent, current URL: {driver.current_url}")
                 
                 # Check if we're now on the actual NSN page
-                if "NSN" in driver.current_url and nsn in driver.current_url:
+                if "rfqnsn.aspx" in driver.current_url and nsn in driver.current_url:
                     logger.info(f"✅ CONSENT PAGE: Successfully passed consent page for NSN: {nsn}")
                     return OperationResult(
                         success=True,
@@ -102,7 +130,18 @@ class ConsentPageOperation(BaseOperation):
                     )
                 else:
                     logger.warning(f"⚠️ CONSENT PAGE: Consent passed but URL doesn't match expected NSN page")
-                    logger.warning(f"⚠️ CONSENT PAGE: Expected NSN: {nsn}, Current URL: {driver.current_url}")
+                    logger.warning(f"⚠️ CONSENT PAGE: Expected to contain 'rfqnsn.aspx' and NSN: {nsn}, Current URL: {driver.current_url}")
+                    logger.warning(f"⚠️ CONSENT PAGE: Page title after consent: {driver.title}")
+                    
+                    # Check if we're still on consent page
+                    if "dodwarning" in driver.current_url:
+                        logger.error(f"❌ CONSENT PAGE: Still on consent page after clicking button")
+                        return OperationResult(
+                            success=False,
+                            status=OperationStatus.FAILED,
+                            error=f"Consent button clicked but still on consent page: {driver.current_url}"
+                        )
+                    
                     return OperationResult(
                         success=False,
                         status=OperationStatus.FAILED,

@@ -77,7 +77,7 @@ class NsnExtractionOperation(BaseOperation):
             logger.info(f"🔍 NSN EXTRACTION: Check closed status: {check_closed_status}")
             
             # Navigate to the NSN page
-            nsn_url = f"{base_url}/RFQ/NSN/{nsn}"
+            nsn_url = f"{base_url}/rfq/rfqnsn.aspx?value={nsn}"
             logger.info(f"🔍 NSN EXTRACTION: Navigating to NSN URL: {nsn_url}")
             
             driver.get(nsn_url)
@@ -85,8 +85,8 @@ class NsnExtractionOperation(BaseOperation):
             logger.info(f"🔍 NSN EXTRACTION: Page title: {driver.title}")
             
             # Wait for page to load
-            time.sleep(3)
-            logger.info(f"🔍 NSN EXTRACTION: Waited 3 seconds for page load")
+            time.sleep(1)  # Reduced from 3 seconds
+            logger.info(f"🔍 NSN EXTRACTION: Waited 1 second for page load")
             
             # Check if we're on the right page
             if nsn not in driver.current_url:
@@ -120,6 +120,7 @@ class NsnExtractionOperation(BaseOperation):
             
             # Extract AMSC code
             logger.info(f"🔍 NSN EXTRACTION: Extracting AMSC code...")
+            logger.info(f"🔍 NSN EXTRACTION: About to call _extract_amsc_code method...")
             amsc_code = self._extract_amsc_code(driver, nsn)
             logger.info(f"🔍 NSN EXTRACTION: AMSC code extracted: {amsc_code}")
             
@@ -306,6 +307,11 @@ class NsnExtractionOperation(BaseOperation):
         try:
             # Look for AMSC code in various possible locations
             amsc_selectors = [
+                # DIBBS specific format - find the strong tag that comes after "AMSC:" in the legend
+                "//legend[contains(., 'AMSC:')]//strong[last()]",
+                # Alternative: look for any element containing AMSC: followed by a letter
+                "//*[contains(text(), 'AMSC:')]",
+                # Traditional table format
                 "//td[contains(text(), 'AMSC')]/following-sibling::td",
                 "//td[contains(text(), 'AMSC Code')]/following-sibling::td",
                 "//span[contains(text(), 'AMSC')]/following-sibling::span",
@@ -314,12 +320,51 @@ class NsnExtractionOperation(BaseOperation):
             
             for selector in amsc_selectors:
                 try:
+                    logger.info(f"🔍 NSN EXTRACTION: Trying selector: {selector}")
                     element = driver.find_element(By.XPATH, selector)
-                    amsc_code = element.text.strip()
-                    if amsc_code and len(amsc_code) > 0:
-                        logger.info(f"AMSC code extracted for NSN {nsn}: {amsc_code}")
-                        return amsc_code
+                    element_text = element.text.strip()
+                    logger.info(f"🔍 NSN EXTRACTION: Element text: {element_text}")
+                    
+                    if selector.startswith("//legend[contains(., 'AMSC:')]//strong[last()]"):
+                        logger.info(f"🔍 NSN EXTRACTION: Processing legend strong tag selector")
+                        # Handle DIBBS fieldset legend format: "AMSC: G"
+                        # We got the strong tag, but need to check if it contains the AMSC code
+                        if element_text and len(element_text.strip()) == 1 and element_text.strip().isalpha():
+                            # This looks like an AMSC code (single letter)
+                            amsc_code = element_text.strip()
+                            logger.info(f"✅ NSN EXTRACTION: AMSC code extracted from strong tag for NSN {nsn}: {amsc_code}")
+                            return amsc_code
+                        else:
+                            logger.warning(f"⚠️ NSN EXTRACTION: Strong tag text doesn't look like AMSC code: '{element_text}'")
+                    elif selector.startswith("//*[contains(text(), 'AMSC:')]"):
+                        logger.info(f"🔍 NSN EXTRACTION: Processing general AMSC selector")
+                        # Handle case where we get the full text containing "AMSC: G"
+                        if 'AMSC:' in element_text:
+                            logger.info(f"🔍 NSN EXTRACTION: Found 'AMSC:' in text")
+                            # Extract the code after "AMSC:"
+                            amsc_part = element_text.split('AMSC:')[1].strip()
+                            logger.info(f"🔍 NSN EXTRACTION: AMSC part: '{amsc_part}'")
+                            # Clean up HTML entities and extract just the letter
+                            amsc_code = amsc_part.split()[0].strip()
+                            logger.info(f"🔍 NSN EXTRACTION: Extracted AMSC code: '{amsc_code}'")
+                            if amsc_code and len(amsc_code) == 1 and amsc_code.isalpha():
+                                logger.info(f"✅ NSN EXTRACTION: AMSC code extracted from text for NSN {nsn}: {amsc_code}")
+                                return amsc_code
+                            else:
+                                logger.warning(f"⚠️ NSN EXTRACTION: AMSC code format invalid: '{amsc_code}'")
+                        else:
+                            logger.warning(f"⚠️ NSN EXTRACTION: No 'AMSC:' found in text")
+                    else:
+                        # Handle traditional format
+                        if element_text and len(element_text) > 0:
+                            logger.info(f"✅ NSN EXTRACTION: AMSC code extracted for NSN {nsn}: {element_text}")
+                            return element_text
+                            
                 except NoSuchElementException:
+                    logger.info(f"🔍 NSN EXTRACTION: Selector not found: {selector}")
+                    continue
+                except Exception as e:
+                    logger.error(f"❌ NSN EXTRACTION: Error with selector {selector}: {str(e)}")
                     continue
             
             # Fallback: search page source for AMSC patterns
