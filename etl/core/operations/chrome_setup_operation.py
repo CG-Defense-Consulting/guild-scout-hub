@@ -159,6 +159,7 @@ class ChromeSetupOperation(BaseOperation):
                 success=True,
                 status=OperationStatus.COMPLETED,
                 data={
+                    'driver': driver,
                     'driver_ready': True,
                     'download_dir': download_dir,
                     'headless': self.headless
