@@ -300,61 +300,99 @@ class UniversalContractQueueDataPuller:
             
             logger.info(f"🚀 WORKFLOW: Processing {len(nsn_list)} NSNs: {nsn_list}")
             
-            # Step 5: Handle consent pages for all NSNs
-            consent_page = ConsentPageOperation()
-            consent_results = consent_page.apply_to_batch(
-                items=nsn_list,
-                inputs={'timeout': timeout, 'retry_attempts': retry_attempts},
-                context={'chrome_driver': chrome_driver}
-            )
-            
-            consent_successful = [r for r in consent_results if r.success]
-            logger.info(f"✅ WORKFLOW: Consent page handling completed. {len(consent_successful)}/{len(nsn_list)} successful")
-            
-            # Step 6: Navigate to NSN pages and collect HTML content
-            nsn_navigation = NsnPageNavigationOperation()
-            navigation_results = nsn_navigation.apply_to_batch(
-                items=nsn_list,
-                inputs={'timeout': timeout, 'retry_attempts': retry_attempts, 'chrome_driver': chrome_driver},
-                context={'chrome_driver': chrome_driver}
-            )
-            
-            navigation_successful = [r for r in navigation_results if r.success]
-            logger.info(f"✅ WORKFLOW: NSN navigation completed. {len(navigation_successful)}/{len(nsn_list)} successful")
-            
-            # Step 7: Process HTML content for closed status and AMSC extraction
+            # Step 5: Process each NSN individually through the complete flow
+            # ChromeDriver operates on state, so we must process each NSN completely before moving to the next
             closed_status_results = []
             amsc_extraction_results = []
+            rfq_pdf_results = []
             
-            for i, nav_result in enumerate(navigation_results):
-                if nav_result.success:
-                    nsn = nsn_list[i]
-                    html_content = nav_result.data.get('html_content')
+            for i, nsn in enumerate(nsn_list):
+                logger.info(f"🚀 WORKFLOW: Processing NSN {i+1}/{len(nsn_list)}: {nsn}")
+                
+                try:
+                    # Step 5a: Navigate to NSN page
+                    nsn_navigation = NsnPageNavigationOperation()
+                    nav_result = nsn_navigation.execute(
+                        inputs={'nsn': nsn, 'chrome_driver': chrome_driver, 'timeout': timeout, 'retry_attempts': retry_attempts},
+                        context={'chrome_driver': chrome_driver}
+                    )
                     
-                    if html_content:
-                        # Check closed status
-                        closed_check = ClosedSolicitationCheckOperation()
-                        closed_result = closed_check.execute(
-                            inputs={'html_content': html_content, 'nsn': nsn},
-                            context={}
-                        )
-                        closed_status_results.append(closed_result)
-                        
-                        # Extract AMSC code
-                        amsc_extraction = AmscExtractionOperation()
-                        amsc_result = amsc_extraction.execute(
-                            inputs={'html_content': html_content, 'nsn': nsn},
-                            context={}
-                        )
-                        amsc_extraction_results.append(amsc_result)
-                        
-                        logger.info(f"🔍 WORKFLOW: Processed NSN {nsn} - Closed: {closed_result.data.get('is_closed')}, AMSC: {amsc_result.data.get('amsc_code')}")
+                    if not nav_result.success:
+                        logger.error(f"❌ WORKFLOW: Navigation failed for NSN {nsn}: {nav_result.error}")
+                        continue
+                    
+                    logger.info(f"✅ WORKFLOW: Successfully navigated to NSN {nsn}")
+                    
+                    # Step 5b: Handle consent page (if present)
+                    consent_page = ConsentPageOperation()
+                    consent_result = consent_page.execute(
+                        inputs={'nsn': nsn, 'timeout': timeout, 'retry_attempts': retry_attempts},
+                        context={'chrome_driver': chrome_driver}
+                    )
+                    
+                    if consent_result.success:
+                        logger.info(f"✅ WORKFLOW: Consent page handled for NSN {nsn}")
                     else:
-                        logger.warning(f"⚠️ WORKFLOW: No HTML content for NSN {nsn}")
-                else:
-                    logger.error(f"❌ WORKFLOW: Navigation failed for NSN {nsn_list[i]}: {nav_result.error}")
+                        logger.warning(f"⚠️ WORKFLOW: Consent page handling failed for NSN {nsn}: {consent_result.error}")
+                    
+                    # Step 5c: Get the current page HTML content after consent handling
+                    html_content = chrome_driver.page_source
+                    logger.info(f"🔍 WORKFLOW: Retrieved HTML content for NSN {nsn} (length: {len(html_content)} characters)")
+                    
+                    # Step 5d: Check if solicitation is closed
+                    closed_check = ClosedSolicitationCheckOperation()
+                    closed_result = closed_check.execute(
+                        inputs={'html_content': html_content, 'nsn': nsn},
+                        context={}
+                    )
+                    closed_status_results.append(closed_result)
+                    
+                    if closed_result.success:
+                        is_closed = closed_result.data.get('is_closed')
+                        logger.info(f"🔍 WORKFLOW: NSN {nsn} closed status: {is_closed}")
+                        
+                        # If closed, skip AMSC extraction and RFQ PDF download
+                        if is_closed:
+                            logger.info(f"ℹ️ WORKFLOW: NSN {nsn} is closed, skipping AMSC extraction and RFQ PDF download")
+                            amsc_extraction_results.append(None)
+                            rfq_pdf_results.append(None)
+                            continue
+                    
+                    # Step 5e: Extract AMSC code (only if not closed)
+                    amsc_extraction = AmscExtractionOperation()
+                    amsc_result = amsc_extraction.execute(
+                        inputs={'html_content': html_content, 'nsn': nsn},
+                        context={}
+                    )
+                    amsc_extraction_results.append(amsc_result)
+                    
+                    if amsc_result.success:
+                        amsc_code = amsc_result.data.get('amsc_code')
+                        logger.info(f"🔍 WORKFLOW: NSN {nsn} AMSC code: {amsc_code}")
+                    else:
+                        logger.warning(f"⚠️ WORKFLOW: AMSC extraction failed for NSN {nsn}: {amsc_result.error}")
+                    
+                    # Step 5f: Download RFQ PDF if applicable
+                    # Check if this contract needs RFQ PDF
+                    contract_id = contracts_to_process[i] if i < len(contracts_to_process) else None
+                    if contract_id and contract_gaps.get(contract_id, {}).get('needs_rfq_pdf', False):
+                        logger.info(f"📄 WORKFLOW: NSN {nsn} needs RFQ PDF download")
+                        # Here you would add RFQ PDF download logic
+                        # For now, we'll just log it
+                        rfq_pdf_results.append("needs_download")
+                    else:
+                        rfq_pdf_results.append(None)
+                    
+                    logger.info(f"✅ WORKFLOW: Completed processing NSN {nsn}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ WORKFLOW: Error processing NSN {nsn}: {str(e)}")
+                    # Add None results for failed processing
+                    closed_status_results.append(None)
+                    amsc_extraction_results.append(None)
+                    rfq_pdf_results.append(None)
             
-            logger.info(f"✅ WORKFLOW: Content processing completed. {len(closed_status_results)}/{len(nsn_list)} closed status checks, {len(amsc_extraction_results)}/{len(nsn_list)} AMSC extractions")
+            logger.info(f"✅ WORKFLOW: NSN processing completed. {len(closed_status_results)}/{len(nsn_list)} NSNs processed")
             
             # Step 8: Upload results to Supabase
             supabase_upload = SupabaseUploadOperation()
@@ -397,15 +435,18 @@ class UniversalContractQueueDataPuller:
                 logger.warning(f"⚠️ WORKFLOW: Error during Chrome cleanup: {str(e)}")
             
             # Return results summary
+            successful_closed_checks = len([r for r in closed_status_results if r and r.success])
+            successful_amsc_extractions = len([r for r in amsc_extraction_results if r and r.success])
+            successful_rfq_pdfs = len([r for r in rfq_pdf_results if r == "needs_download"])
+            
             return {
                 'success': True,
                 'status': 'completed',
                 'contracts_processed': len(contracts_to_process),
                 'nsns_processed': len(nsn_list),
-                'consent_successful': len(consent_successful),
-                'navigation_successful': len(navigation_successful),
-                'closed_status_checks': len(closed_status_results),
-                'amsc_extractions': len(amsc_extraction_results),
+                'closed_status_checks': successful_closed_checks,
+                'amsc_extractions': successful_amsc_extractions,
+                'rfq_pdfs_needed': successful_rfq_pdfs,
                 'records_uploaded': len(upload_data) if 'upload_data' in locals() else 0,
                 'message': 'Universal contract queue workflow completed successfully'
             }
