@@ -256,6 +256,14 @@ class UniversalContractQueueDataPuller:
             batch_config={}
         )
         
+        # Build NSN list for processing
+        nsn_list = []
+        for contract_id in contracts_to_process:
+            gaps = contract_gaps[contract_id]
+            nsn = gaps.get('nsn')
+            if nsn:
+                nsn_list.append(nsn)
+        
         # Step 2: Handle consent pages for all NSNs
         if nsn_list:
             consent_page = ConsentPageOperation()
