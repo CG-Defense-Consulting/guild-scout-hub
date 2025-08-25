@@ -107,12 +107,20 @@ class UniversalContractQueueDataPuller:
                 existing_closed_status = existing_data.get('closed')
                 rfq_index_id = existing_data.get('id')
                 
+                # Debug logging to show what we're checking
+                logger.debug(f"Contract {contract_id}: existing_amsc='{existing_amsc}' (type: {type(existing_amsc)}), existing_closed_status={existing_closed_status}, rfq_index_id={rfq_index_id}")
+                
                 # Check if this contract needs processing
                 needs_processing = (
-                    existing_amsc is None or  # Missing AMSC code
+                    not existing_amsc or (isinstance(existing_amsc, str) and existing_amsc.strip() == '') or  # Missing AMSC code (None, empty string, or whitespace)
                     existing_closed_status is None or  # Missing closed status
                     rfq_index_id is None  # Missing RFQ index record
                 )
+                
+                if needs_processing:
+                    logger.debug(f"Contract {contract_id} needs processing - AMSC: {'missing' if (not existing_amsc or (isinstance(existing_amsc, str) and existing_amsc.strip() == '')) else 'present'}, Closed: {'missing' if existing_closed_status is None else 'present'}, RFQ Index: {'missing' if rfq_index_id is None else 'present'}")
+                else:
+                    logger.debug(f"Contract {contract_id} does NOT need processing - all data present")
                 
                 if needs_processing:
                     contract_data = {
@@ -139,7 +147,7 @@ class UniversalContractQueueDataPuller:
             logger.info(f"Found {len(contracts)} contracts needing processing")
             
             # Log summary of what needs processing
-            missing_amsc = len([c for c in contracts if c.get('existing_amsc') is None])
+            missing_amsc = len([c for c in contracts if not c.get('existing_amsc') or (isinstance(c.get('existing_amsc'), str) and c.get('existing_amsc').strip() == '')])
             missing_closed = len([c for c in contracts if c.get('existing_closed_status') is None])
             missing_rfq = len([c for c in contracts if c.get('rfq_index_id') is None])
             
@@ -226,6 +234,13 @@ class UniversalContractQueueDataPuller:
                 'contract_data': contract  # Keep full contract data for reference
             }
             
+            # Debug logging for AMSC code analysis
+            logger.debug(f"Analyzing contract {contract_id}: existing_amsc='{contract_gaps['existing_amsc']}' (type: {type(contract_gaps['existing_amsc'])})")
+            logger.debug(f"  - AMSC empty check: {not contract_gaps['existing_amsc'] or (isinstance(contract_gaps['existing_amsc'], str) and contract_gaps['existing_amsc'].strip() == '')}")
+            logger.debug(f"  - AMSC None check: {contract_gaps['existing_amsc'] is None}")
+            logger.debug(f"  - AMSC string check: {contract_gaps['existing_amsc'] == '' if isinstance(contract_gaps['existing_amsc'], str) else 'N/A'}")
+            logger.debug(f"  - AMSC whitespace check: {(isinstance(contract_gaps['existing_amsc'], str) and contract_gaps['existing_amsc'].strip() == '') if isinstance(contract_gaps['existing_amsc'], str) else 'N/A'}")
+            
             try:
                 # FIRST: Check if RFQ PDF exists in Supabase bucket
                 rfq_pdf_exists = self.check_rfq_pdf_exists(contract_id)
@@ -234,13 +249,13 @@ class UniversalContractQueueDataPuller:
                 if rfq_pdf_exists:
                     # RFQ PDF exists - check if we still need other data
                     needs_other_data = (
-                        contract_gaps['existing_amsc'] is None or 
+                        not contract_gaps['existing_amsc'] or (isinstance(contract_gaps['existing_amsc'], str) and contract_gaps['existing_amsc'].strip() == '') or
                         contract_gaps['existing_closed_status'] is None
                     )
                     
                     if needs_other_data:
                         # PDF exists but we need other data
-                        contract_gaps['needs_amsc'] = contract_gaps['existing_amsc'] is None
+                        contract_gaps['needs_amsc'] = not contract_gaps['existing_amsc'] or (isinstance(contract_gaps['existing_amsc'], str) and contract_gaps['existing_amsc'].strip() == '')
                         contract_gaps['needs_closed_status'] = contract_gaps['existing_closed_status'] is None
                         contract_gaps['should_process'] = True
                         contract_gaps['action_reason'] = 'RFQ PDF exists but missing other data - will extract missing data'
@@ -253,7 +268,7 @@ class UniversalContractQueueDataPuller:
                     
                 else:
                     # RFQ PDF does NOT exist - check AMSC code status
-                    if contract_gaps['existing_amsc'] is None:
+                    if not contract_gaps['existing_amsc'] or (isinstance(contract_gaps['existing_amsc'], str) and contract_gaps['existing_amsc'].strip() == ''):
                         # AMSC code is empty - extract AMSC code AND download RFQ PDF
                         contract_gaps['needs_amsc'] = True
                         contract_gaps['needs_rfq_pdf'] = True
