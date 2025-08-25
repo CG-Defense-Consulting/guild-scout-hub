@@ -87,7 +87,12 @@ class AmscExtractionOperation(BaseOperation):
 
     def _extract_amsc_from_html(self, html_content: str, nsn: str) -> Optional[str]:
         """
-        Extract AMSC code from HTML content using various methods.
+        Extract AMSC code from HTML content using a clean approach.
+        
+        This method:
+        1. Cleans the HTML by removing HTML entities and tags
+        2. Applies a simple regex to find the AMSC code
+        3. Is more robust and reliable than complex HTML-aware regex patterns
         
         Args:
             html_content: HTML content to parse
@@ -97,41 +102,54 @@ class AmscExtractionOperation(BaseOperation):
             AMSC code string or None if not found
         """
         try:
-            # Method 1: Look for DIBBS legend pattern with strong tags
-            # Pattern: <legend>...AMSC: <strong>T</strong>...</legend>
-            legend_pattern = r'<legend[^>]*>.*?AMSC:\s*<strong>([A-Z])\s*</strong>'
-            match = re.search(legend_pattern, html_content, re.IGNORECASE | re.DOTALL)
+            # Step 1: Clean the HTML by removing HTML entities and tags
+            cleaned_html = html_content
+            
+            # Replace common HTML entities
+            cleaned_html = cleaned_html.replace('&nbsp;', ' ')
+            cleaned_html = cleaned_html.replace('&amp;', '&')
+            cleaned_html = cleaned_html.replace('&lt;', '<')
+            cleaned_html = cleaned_html.replace('&gt;', '>')
+            cleaned_html = cleaned_html.replace('&quot;', '"')
+            cleaned_html = cleaned_html.replace('&#39;', "'")
+            
+            # Remove all HTML tags
+            cleaned_html = re.sub(r'<[^>]+>', '', cleaned_html)
+            
+            # Clean up extra whitespace
+            cleaned_html = re.sub(r'\s+', ' ', cleaned_html).strip()
+            
+            logger.debug(f"🔍 AMSC EXTRACTION: Cleaned HTML for NSN {nsn} (length: {len(cleaned_html)})")
+            
+            # Step 2: Apply simple regex to find AMSC code
+            # Pattern: AMSC: followed by optional whitespace and a single letter
+            amsc_pattern = r'AMSC:\s*([A-Z])'
+            match = re.search(amsc_pattern, cleaned_html, re.IGNORECASE)
+            
             if match:
                 amsc_code = match.group(1).upper()
-                logger.info(f"🔍 AMSC EXTRACTION: AMSC code found via legend pattern for NSN {nsn}: {amsc_code}")
+                logger.info(f"🔍 AMSC EXTRACTION: AMSC code found for NSN {nsn}: '{amsc_code}'")
                 return amsc_code
             
-            # Method 2: Look for AMSC: X pattern in text
-            amsc_pattern = r'AMSC:\s*([A-Z])\s*'
-            match = re.search(amsc_pattern, html_content, re.IGNORECASE)
+            # Step 3: Fallback - try to find any AMSC pattern if the main one fails
+            fallback_pattern = r'AMSC[:\s]+([A-Z])'
+            match = re.search(fallback_pattern, cleaned_html, re.IGNORECASE)
+            
             if match:
                 amsc_code = match.group(1).upper()
-                logger.info(f"🔍 AMSC EXTRACTION: AMSC code found via AMSC pattern for NSN {nsn}: {amsc_code}")
+                logger.info(f"🔍 AMSC EXTRACTION: AMSC code found via fallback pattern for NSN {nsn}: '{amsc_code}'")
                 return amsc_code
             
-            # Method 3: Look for DIBBS specific full legend pattern
-            # Pattern: NSN: XXXX Nomenclature: XXX AMSC: X
-            dibbs_pattern = r'NSN:[^A]*Nomenclature:[^A]*AMSC:\s*([A-Z])'
-            match = re.search(dibbs_pattern, html_content, re.IGNORECASE | re.DOTALL)
-            if match:
-                amsc_code = match.group(1).upper()
-                logger.info(f"🔍 AMSC EXTRACTION: AMSC code found via DIBBS pattern for NSN {nsn}: {amsc_code}")
-                return amsc_code
+            logger.warning(f"⚠️ AMSC EXTRACTION: No AMSC code found in cleaned HTML for NSN {nsn}")
             
-            # Method 4: Look for any AMSC code pattern
-            general_pattern = r'AMSC[:\s]+([A-Z])'
-            match = re.search(general_pattern, html_content, re.IGNORECASE)
-            if match:
-                amsc_code = match.group(1).upper()
-                logger.info(f"🔍 AMSC EXTRACTION: AMSC code found via general pattern for NSN {nsn}: {amsc_code}")
-                return amsc_code
+            # Log a sample of the cleaned HTML for debugging
+            amsc_index = cleaned_html.find('AMSC')
+            if amsc_index != -1:
+                start = max(0, amsc_index - 100)
+                end = min(len(cleaned_html), amsc_index + 100)
+                context = cleaned_html[start:end]
+                logger.debug(f"🔍 AMSC EXTRACTION: Context around 'AMSC' in cleaned HTML: {context}")
             
-            logger.warning(f"⚠️ AMSC EXTRACTION: No AMSC code patterns found in HTML for NSN {nsn}")
             return None
             
         except Exception as e:

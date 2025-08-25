@@ -1,0 +1,15 @@
+{
+  "nsn": "5331006185361",
+  "expected_amsc": "T",
+  "timestamp": "20250825_151731",
+  "html_filename": "debug_output/nsn_5331006185361_html_20250825_151731.html",
+  "html_length": 54625,
+  "chrome_setup_success": true,
+  "navigation_success": true,
+  "consent_handling_success": true,
+  "closed_status_check_success": true,
+  "closed_status": null,
+  "amsc_extraction_success": true,
+  "extracted_amsc": null,
+  "amsc_extraction_error": null
+}
