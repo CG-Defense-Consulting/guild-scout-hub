@@ -378,13 +378,13 @@ class SupabaseUploader:
     # Note: Database table operations removed to match UI behavior
     # The UI only uses Supabase storage, not database tables for documents
     
-    def update_contract_amsc(self, contract_id: str, is_g_level: bool) -> bool:
+    def update_rfq_closed_status(self, contract_id: str, is_closed: bool) -> bool:
         """
-        Update the cde_g field in universal_contract_queue table.
+        Update the closed field in rfq_index_extract table.
         
         Args:
             contract_id: The contract ID to update
-            is_g_level: Whether the AMSC code is G (True) or not (False)
+            is_closed: Whether the solicitation is closed (True) or open (False)
             
         Returns:
             True if successful, False otherwise
@@ -394,13 +394,63 @@ class SupabaseUploader:
                 logger.error("Supabase client not initialized")
                 return False
             
-            logger.info(f"Updating contract {contract_id} with cde_g: {is_g_level}")
+            logger.info(f"Updating rfq_index_extract {contract_id} with closed: {is_closed}")
+            
+            # Update the rfq_index_extract record
+            result = self.supabase.table('rfq_index_extract').update({
+                'closed': is_closed
+            }).eq('id', contract_id).execute()
+            
+            # Handle different response formats from Supabase client
+            logger.info(f"Update result type: {type(result)}")
+            logger.info(f"Update result: {result}")
+            
+            # Try to get more details about the response
+            try:
+                if hasattr(result, 'error') and result.error:
+                    logger.error(f"Supabase error: {result.error}")
+                    return False
+                elif hasattr(result, 'data'):
+                    logger.info(f"Update successful. Data: {result.data}")
+                    return True
+                elif hasattr(result, 'count'):
+                    logger.info(f"Update successful. Count: {result.count}")
+                    return True
+                else:
+                    logger.warning("Unknown response format, assuming success")
+                    return True
+            except Exception as parse_error:
+                logger.warning(f"Could not parse response: {parse_error}")
+                # If we can't parse the response, assume it succeeded
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error updating rfq_index_extract closed status: {str(e)}")
+            return False
+
+    def update_rfq_amsc(self, contract_id: str, amsc_code: str) -> bool:
+        """
+        Update the cde_g field in rfq_index_extract table with the actual AMSC code.
+        
+        Args:
+            contract_id: The contract ID to update
+            amsc_code: The actual AMSC code value (e.g., 'G', 'A', 'B', etc.)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            if not self.supabase:
+                logger.error("Supabase client not initialized")
+                return False
+            
+            logger.info(f"Updating rfq_index_extract {contract_id} with cde_g: {amsc_code}")
             logger.info(f"Supabase client initialized: {self.supabase is not None}")
             
-            # Update the contract record
-            logger.info(f"Executing database update for contract {contract_id}")
-            result = self.supabase.table('universal_contract_queue').update({
-                'cde_g': is_g_level
+            # Update the rfq_index_extract record
+            logger.info(f"Executing database update for rfq_index_extract {contract_id}")
+            result = self.supabase.table('rfq_index_extract').update({
+                'cde_g': amsc_code
             }).eq('id', contract_id).execute()
             
             # Handle different response formats from Supabase client
@@ -416,27 +466,49 @@ class SupabaseUploader:
             
             # Try to get more details about the response
             try:
-                if hasattr(result, '__dict__'):
-                    logger.info(f"Result object __dict__: {result.__dict__}")
-            except Exception as dict_error:
-                logger.warning(f"Could not access __dict__: {str(dict_error)}")
+                if hasattr(result, 'error') and result.error:
+                    logger.error(f"Supabase error: {result.error}")
+                    return False
+                elif hasattr(result, 'data'):
+                    logger.info(f"Update successful. Data: {result.data}")
+                    return True
+                elif hasattr(result, 'count'):
+                    logger.info(f"Update successful. Count: {result.count}")
+                    return True
+                else:
+                    logger.warning("Unknown response format, assuming success")
+                    return True
+            except Exception as parse_error:
+                logger.warning(f"Could not parse response: {parse_error}")
+                # If we can't parse the response, assume it succeeded
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error updating rfq_index_extract AMSC: {str(e)}")
+            return False
+
+    def update_contract_amsc(self, contract_id: str, is_g_level: bool) -> bool:
+        """
+        Update the cde_g field in universal_contract_queue table.
+        This method is kept for backward compatibility but now delegates to update_rfq_amsc.
+        
+        Args:
+            contract_id: The contract ID to update
+            is_g_level: Whether the AMSC code is G (True) or not (False)
             
-            # Check for errors in different response formats
-            if hasattr(result, 'error') and result.error:
-                logger.error(f"Error updating contract AMSC: {result.error}")
-                return False
-            elif hasattr(result, 'data') and result.data:
-                logger.info(f"Successfully updated contract {contract_id} with cde_g: {is_g_level}")
-                logger.info(f"Update result data: {result.data}")
-                return True
-            else:
-                # If no error attribute and no data, assume success
-                logger.info(f"Successfully updated contract {contract_id} with cde_g: {is_g_level}")
-                logger.info(f"Update result: {result}")
-                return True
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Convert boolean to AMSC code string for backward compatibility
+            amsc_code = 'G' if is_g_level else 'N'
+            logger.info(f"Converting boolean AMSC to code: {is_g_level} -> {amsc_code}")
+            
+            # Delegate to the new method
+            return self.update_rfq_amsc(contract_id, amsc_code)
             
         except Exception as e:
-            logger.error(f"Error updating contract AMSC: {str(e)}")
+            logger.error(f"Error in update_contract_amsc: {str(e)}")
             return False
     
     def _get_timestamp(self) -> str:

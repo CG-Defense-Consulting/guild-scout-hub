@@ -1,20 +1,35 @@
 import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { DataTable } from '@/components/DataTable';
-import { PricingIntelPanel } from '@/components/PricingIntelPanel';
-import { useRfqData, useRfqDataWithSearch, useAwardHistory, useAddToQueue } from '@/hooks/use-database';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { useQuery } from '@tanstack/react-query';
+import { useRfqDataWithSearch, useAwardHistory, useAddToQueue } from '@/hooks/use-database';
 import { supabase } from '@/integrations/supabase/client';
+import { PricingIntelPanel } from '@/components/PricingIntelPanel';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { getClosedStatusStyle } from '@/lib/utils';
+import { useQuery } from '@tanstack/react-query';
+import { 
+  Search, 
+  X, 
+  TrendingUp, 
+  Plus, 
+  Package, 
+  Calendar,
+  Filter,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  FileText,
+  Database,
+  Tag
+} from 'lucide-react';
+import { DataTable } from '@/components/DataTable';
 
-import { Search, Plus, TrendingUp, Calendar, Package, Tag, Filter, X, ChevronDown, ChevronUp, ExternalLink, FileText, Database } from 'lucide-react';
 
 // RFQ PDF Button Component
 const RfqPdfButton = ({ solicitationNumber, nsn }: { solicitationNumber: string; nsn: string }) => {
@@ -360,15 +375,17 @@ export const Scouting = () => {
     {
       accessorKey: 'solicitation_number',
       header: 'Solicitation',
+      headerClassName: 'w-32 min-w-32', // Fixed width for solicitation
       cell: ({ getValue }: any) => (
-        <div className="font-mono text-sm">{getValue()}</div>
+        <div className="font-mono text-sm truncate" title={getValue()}>{getValue()}</div>
       ),
     },
     {
       accessorKey: 'national_stock_number',
       header: 'NSN',
+      headerClassName: 'w-32 min-w-32', // Fixed width for NSN
       cell: ({ getValue }: any) => (
-        <Badge variant="secondary" className="font-mono">
+        <Badge variant="secondary" className="font-mono truncate max-w-full" title={getValue()}>
           {getValue()}
         </Badge>
       ),
@@ -376,46 +393,87 @@ export const Scouting = () => {
     {
       accessorKey: 'desc',
       header: 'Description',
+      headerClassName: 'min-w-64 flex-1', // Flexible width for description
       cell: ({ row }: any) => {
         const item = row.original.item || '';
         const desc = row.original.desc || '';
         const combinedText = item && desc ? `${item} | ${desc}` : item || desc;
         
         return (
-          <div className={isMobile ? "line-clamp-2" : "max-w-xs truncate"} title={combinedText}>
+          <div className="truncate max-w-full" title={combinedText}>
             {combinedText}
           </div>
         );
       },
     },
     {
+      accessorKey: 'cde_g',
+      header: 'AMSC',
+      headerClassName: 'w-20 min-w-20', // Fixed width for AMSC
+      cell: ({ row }: any) => {
+        const amscCode = row.original.cde_g;
+        if (!amscCode) {
+          return <span className="text-muted-foreground text-sm">Not extracted</span>;
+        }
+        return (
+          <Badge variant={amscCode === 'G' ? "default" : "secondary"} className="font-mono">
+            {amscCode}
+          </Badge>
+        );
+      },
+    },
+    {
+      accessorKey: 'closed',
+      header: 'Status',
+      headerClassName: 'w-24 min-w-24', // Fixed width for status
+      cell: ({ row }: any) => {
+        const closed = row.original.closed;
+        if (closed === null || closed === undefined) {
+          return <span className="text-muted-foreground text-sm">Unknown</span>;
+        }
+        
+        // Use utility function to determine styling
+        const { variant, customClasses } = getClosedStatusStyle(closed, row.original.current_stage);
+        
+        return (
+          <Badge variant={variant} className={customClasses}>
+            {closed ? 'Closed' : 'Open'}
+          </Badge>
+        );
+      },
+    },
+    {
       accessorKey: 'quantity',
       header: 'Quantity',
+      headerClassName: 'w-24 min-w-24', // Fixed width for quantity
       cell: ({ getValue }: any) => (
         <div className="flex items-center gap-1">
-          <Package className="w-3 h-3 text-muted-foreground" />
-          {getValue()?.toLocaleString()}
+          <Package className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+          <span className="truncate">{getValue()?.toLocaleString()}</span>
         </div>
       ),
     },
     {
       accessorKey: 'quote_issue_date',
       header: 'Issue Date',
+      headerClassName: 'w-32 min-w-32', // Fixed width for date
       cell: ({ row }: any) => (
         <div className="flex items-center gap-1">
-          <Calendar className="w-3 h-3 text-muted-foreground" />
-          {isMobile ? (
-            <span className="text-sm">{row.original.quote_issue_date}</span>
-          ) : (
-            row.original.quote_issue_date
-          )}
+          <Calendar className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+          <span className="truncate">
+            {isMobile ? (
+              <span className="text-sm">{row.original.quote_issue_date}</span>
+            ) : (
+              row.original.quote_issue_date
+            )}
+          </span>
         </div>
       ),
     },
     {
       id: 'actions',
       header: 'Actions',
-      headerClassName: 'w-48', // Set fixed width for Actions column
+      headerClassName: 'w-48 min-w-48', // Fixed width for Actions column
       cell: ({ row }: any) => (
         <div className={`flex ${isMobile ? 'flex-col space-y-2' : 'gap-2'}`}>
           <Button
@@ -512,30 +570,32 @@ export const Scouting = () => {
 
       {/* Desktop Header */}
       {!isMobile && (
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="flex-1 min-w-0">
             <h1 className="text-2xl font-semibold text-guild-brand-fg">Contract Scouting</h1>
             <p className="text-muted-foreground">Discover and analyze defense contracting opportunities</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 min-w-0">
             {selectedCategories.length > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Filtered by:</span>
-                {selectedCategories.map((catId) => {
-                  const category = categories.find(cat => cat.id === catId);
-                  return (
-                    <Badge
-                      key={catId}
-                      variant="secondary"
-                      className="bg-guild-accent-1/20 text-guild-accent-1 border-guild-accent-1/30"
-                    >
-                      {category?.name}
-                    </Badge>
-                  );
-                })}
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                <span className="text-sm text-muted-foreground whitespace-nowrap">Filtered by:</span>
+                <div className="flex flex-wrap gap-2 min-w-0">
+                  {selectedCategories.map((catId) => {
+                    const category = categories.find(cat => cat.id === catId);
+                    return (
+                      <Badge
+                        key={catId}
+                        variant="secondary"
+                        className="bg-guild-accent-1/20 text-guild-accent-1 border-guild-accent-1/30 whitespace-nowrap"
+                      >
+                        {category?.name}
+                      </Badge>
+                    );
+                  })}
+                </div>
               </div>
             )}
-            <Badge variant="outline" className="bg-guild-accent-1/10 text-guild-accent-1">
+            <Badge variant="outline" className="bg-guild-accent-1/10 text-guild-accent-1 whitespace-nowrap">
               {filteredRfqData.length} opportunities
             </Badge>
           </div>

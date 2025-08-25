@@ -348,6 +348,51 @@ class DibbsScraper:
             logger.error(f"Error verifying PDF: {str(e)}")
             return False
 
+    def check_nsn_closed_status(self, nsn: str) -> Optional[bool]:
+        """
+        Check if there are no open RFQ solicitations for a given NSN.
+        
+        Args:
+            nsn: The National Stock Number to check
+            
+        Returns:
+            True if no open solicitations found (closed), False if open solicitations exist, None if unable to determine
+        """
+        try:
+            logger.info(f"Checking closed status for NSN: {nsn}")
+            
+            # Construct the NSN Details URL
+            nsn_url = f"https://www.dibbs.bsm.dla.mil//rfq/rfqnsn.aspx?value={nsn}"
+            logger.info(f"Navigating to NSN URL: {nsn_url}")
+            
+            # Handle consent page and navigate to NSN details
+            if not self._handle_consent_page(nsn_url):
+                logger.error(f"Failed to handle consent page for NSN: {nsn}")
+                return None
+            
+            logger.info("Consent page handled successfully, waiting for NSN page to load...")
+            
+            # Wait a moment for the page to fully load
+            import time
+            time.sleep(2)
+            
+            # Get the page source to check for the "no open RFQ solicitations" message
+            page_source = self.driver.page_source
+            
+            # Look for the specific message indicating no open solicitations
+            no_open_message = f"No record of National Stock Number: {nsn} with open DIBBS Request For Quotes (RFQ) solicitations."
+            
+            if no_open_message in page_source:
+                logger.info(f"Found 'no open RFQ solicitations' message for NSN: {nsn}")
+                return True  # Closed - no open solicitations
+            else:
+                logger.info(f"No 'no open RFQ solicitations' message found for NSN: {nsn}")
+                return False  # Open - solicitations may exist
+            
+        except Exception as e:
+            logger.error(f"Error checking NSN closed status: {str(e)}")
+            return None
+
     def extract_nsn_amsc(self, nsn: str) -> Optional[str]:
         """
         Extract AMSC code from NSN Details page.

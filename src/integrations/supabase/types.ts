@@ -87,7 +87,8 @@ export type Database = {
       }
       rfq_index_extract: {
         Row: {
-        
+          cde_g: string | null
+          closed: boolean | null
           desc: string | null
           id: string
           item: string
@@ -102,6 +103,8 @@ export type Database = {
           unit_type_long: string
         }
         Insert: {
+          cde_g?: string | null
+          closed?: boolean | null
           desc?: string | null
           id?: string
           item: string
@@ -116,6 +119,8 @@ export type Database = {
           unit_type_long: string
         }
         Update: {
+          cde_g?: string | null
+          closed?: boolean | null
           desc?: string | null
           id?: string
           item?: string

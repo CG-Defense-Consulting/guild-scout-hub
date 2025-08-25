@@ -116,6 +116,59 @@ export const useWorkflow = () => {
     });
   };
 
+  const triggerUniversalContractQueueWorkflow = () => {
+    return triggerWorkflow({
+      workflow_name: 'universal_contract_queue_data_pull'
+    });
+  };
+
+  const triggerUniversalContractQueueWorkflowDirect = async () => {
+    setIsLoading(true);
+    
+    try {
+      // Call the correct Supabase Edge Function directly
+      const { data, error } = await supabase.functions.invoke('dispatch-universal-contract-queue', {
+        body: {} // No body needed since the workflow discovers contracts internally
+      });
+
+      if (error) {
+        console.error('Edge function error:', error);
+        toast({
+          title: 'Workflow Dispatch Failed',
+          description: error.message || 'Failed to dispatch workflow',
+          variant: 'destructive',
+        });
+        return null;
+      }
+
+      if (data?.success) {
+        toast({
+          title: 'Workflow Dispatched',
+          description: data.message || 'Universal contract queue workflow started successfully',
+        });
+        return data;
+      } else {
+        toast({
+          title: 'Workflow Dispatch Failed',
+          description: data?.error || 'Unknown error occurred',
+          variant: 'destructive',
+        });
+        return null;
+      }
+
+    } catch (error) {
+      console.error('Workflow dispatch error:', error);
+      toast({
+        title: 'Workflow Dispatch Failed',
+        description: 'Network error occurred while dispatching workflow',
+        variant: 'destructive',
+      });
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return {
     isLoading,
     triggerWorkflow,
@@ -125,5 +178,7 @@ export const useWorkflow = () => {
     triggerPullDayRfqIndexExtract,
     triggerPullSingleAwardHistory,
     triggerPullDayAwardHistory,
+    triggerUniversalContractQueueWorkflow,
+    triggerUniversalContractQueueWorkflowDirect,
   };
 };

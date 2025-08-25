@@ -27,7 +27,7 @@ export const Layout = () => {
     <div className="min-h-screen flex flex-col w-full">
       <header className="h-16 flex items-center justify-between px-4 md:px-6 border-b bg-guild-brand-bg">
         {/* Left side - Logo and Brand */}
-        <div className="flex items-center gap-2 md:gap-4">
+        <div className="flex items-center gap-2 md:gap-4 flex-shrink-0">
           <div className="flex items-center gap-2 md:gap-3">
             <img
               src="/CG-color.png"
@@ -39,21 +39,21 @@ export const Layout = () => {
         </div>
         
         {/* Center - Navigation (Desktop) */}
-        <nav className="hidden md:flex items-center gap-1">
+        <nav className="nav-container hidden md:flex items-center gap-1 lg:gap-2 xl:gap-4">
           {navigationItems.map((item) => (
             <NavLink
               key={item.title}
               to={item.url}
               className={({ isActive }) =>
-                `flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                `nav-item flex items-center gap-1 md:gap-2 px-2 md:px-3 lg:px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                   isActive
                     ? 'bg-guild-accent-1/20 text-guild-accent-1'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
                 }`
               }
             >
-              <item.icon className="h-4 w-4" />
-              <span>{item.title}</span>
+              <item.icon className="h-4 w-4 flex-shrink-0" />
+              <span className="truncate">{item.title}</span>
             </NavLink>
           ))}
         </nav>
@@ -62,15 +62,15 @@ export const Layout = () => {
         <Button
           variant="ghost"
           size="sm"
-          className="md:hidden"
+          className="md:hidden flex-shrink-0"
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
         >
           {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </Button>
         
         {/* Right side - User info and logout */}
-        <div className="flex items-center gap-2 md:gap-3">
-          <span className="hidden sm:block text-sm text-muted-foreground">{user?.email}</span>
+        <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
+          <span className="hidden sm:block text-sm text-muted-foreground truncate">{user?.email}</span>
           <Button
             variant="ghost"
             size="sm"
@@ -113,7 +113,7 @@ export const Layout = () => {
       
       {/* Version number - barely visible */}
       <div className="fixed bottom-2 right-2 text-xs text-muted-foreground/30 select-none pointer-events-none">
-        v0.0.10a
+        v0.0.11a
       </div>
     </div>
   );

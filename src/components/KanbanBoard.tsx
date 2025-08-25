@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { Calendar, Package, Eye, ArrowRight, ArrowLeft, Trash2, ExternalLink, FileText, Database } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { getClosedStatusDotColor } from '@/lib/utils';
 
 interface KanbanBoardProps {
   columns: string[];
@@ -113,7 +114,7 @@ export const KanbanBoard = ({
   const { user } = useAuth();
   const updateStatus = useUpdateQueueStatus();
   const deleteFromQueue = useDeleteFromQueue();
-
+  
   // Define stage transition rules
   const stageTransitions: Record<string, { forward: string[], backward: string[] }> = {
     'Analysis': {
@@ -239,21 +240,35 @@ export const KanbanBoard = ({
                   {contract.national_stock_number || 'No NSN'}
                 </div>
                 
+                {/* Workflow Needed Indicator */}
+                {!contract.cde_g && (
+                  <div className="group relative">
+                    <Badge 
+                      variant="outline" 
+                      className="text-xs text-yellow-600 border-yellow-300 bg-yellow-50 cursor-help"
+                      title="This contract needs the NSN AMSC workflow to extract the AMSC code from DIBBS. Click the contract to view details and run the workflow."
+                    >
+                      Missing AMSC Code
+                    </Badge>
+                  </div>
+                )}
+                
                 {/* AMSC Status Indicator */}
-                {contract.cde_g === true && (
+                {contract.cde_g && (
                   <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                    <div className={`w-2 h-2 rounded-full ${contract.cde_g === 'G' ? 'bg-green-500' : 'bg-blue-500'}`} />
                     <span className="text-xs text-muted-foreground">
-                      AMSC: G-Level
+                      AMSC: {contract.cde_g}
                     </span>
                   </div>
                 )}
                 
-                {contract.cde_g === false && (
+                {/* Closed Status Indicator */}
+                {contract.closed === true && (
                   <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-red-500" />
+                    <div className={`w-2 h-2 rounded-full ${getClosedStatusDotColor(contract.closed, contract.current_stage)}`} />
                     <span className="text-xs text-muted-foreground">
-                      AMSC: Non-G
+                      Closed
                     </span>
                   </div>
                 )}
@@ -321,8 +336,6 @@ export const KanbanBoard = ({
                     <Database className="w-3 h-3" />
                   </Button>
                 )}
-                
-
                 
                 {/* Delete button */}
                 <Button

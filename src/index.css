@@ -110,6 +110,67 @@ All colors MUST be HSL.
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
+
+  /* Table-specific styles to prevent wrapping */
+  .data-table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .data-table {
+    min-width: max-content;
+    width: 100%;
+  }
+  
+  .data-table th,
+  .data-table td {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  .data-table th {
+    position: sticky;
+    top: 0;
+    background: hsl(var(--background));
+    z-index: 10;
+  }
+  
+  /* Navigation layout fixes */
+  .nav-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+  }
+  
+  .nav-item {
+    flex-shrink: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  /* Responsive navigation spacing */
+  @media (min-width: 768px) and (max-width: 1023px) {
+    .nav-item {
+      max-width: 120px;
+    }
+  }
+  
+  @media (min-width: 1024px) and (max-width: 1279px) {
+    .nav-item {
+      max-width: 140px;
+    }
+  }
+  
+  @media (min-width: 1280px) {
+    .nav-item {
+      max-width: none;
+    }
+  }
 }
 
 @layer base {

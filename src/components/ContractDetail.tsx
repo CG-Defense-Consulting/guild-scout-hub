@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useUpdateDestinations, useUpdateMilitaryStandards, useUploadDocument, extractOriginalFileName, StageTimelineEntry } from '@/hooks/use-database';
 import { supabase } from '@/integrations/supabase/client';
 import { useWorkflow } from '@/hooks/use-workflow';
+import { getClosedStatusStyle } from '@/lib/utils';
 import { 
   FileText, 
   Upload, 
@@ -27,6 +28,7 @@ import {
   CheckCircle2,
   Database
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface ContractDetailProps {
   contract: any;
@@ -528,6 +530,35 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="amsc-code">AMSC Code</Label>
+                    <Input 
+                      id="amsc-code" 
+                      defaultValue={contract.cde_g || 'Not extracted'} 
+                      className="font-mono"
+                      disabled
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="closed-status">Solicitation Status</Label>
+                    {(() => {
+                      const { variant, customClasses } = getClosedStatusStyle(contract.closed, contract.current_stage);
+                      return (
+                        <Badge 
+                          variant={variant}
+                          className={cn(
+                            "w-full justify-center py-2",
+                            customClasses
+                          )}
+                        >
+                          {contract.closed === true ? 'Closed' : contract.closed === false ? 'Open' : 'Unknown'}
+                        </Badge>
+                      );
+                    })()}
+                  </div>
+                </div>
+
                 <div className="pt-4">
                   <p className="text-sm text-muted-foreground">
                     Contract details are read-only. Use the status controls above to manage the contract lifecycle.
@@ -779,7 +810,14 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                     variant="outline" 
                     className="justify-start"
                     onClick={() => handlePullRfqPdf()}
-                    disabled={isPullingRfq}
+                    disabled={isPullingRfq || uploadedDocuments.some(doc => 
+                      doc.originalFileName.includes(contract.solicitation_number || '') && 
+                      doc.originalFileName.endsWith('.PDF')
+                    )}
+                    title={uploadedDocuments.some(doc => 
+                      doc.originalFileName.includes(contract.solicitation_number || '') && 
+                      doc.originalFileName.endsWith('.PDF')
+                    ) ? 'RFQ PDF already exists' : 'Pull RFQ PDF from DIBBS'}
                   >
                     <FileText className="w-4 h-4 mr-2" />
                     {isPullingRfq ? 'Pulling RFQ PDF...' : 'Pull this RFQ PDF'}
@@ -789,18 +827,12 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                     variant="outline" 
                     className="justify-start"
                     onClick={() => handleExtractAmsc()}
-                    disabled={isExtractingAmsc}
+                    disabled={isExtractingAmsc || !!contract.cde_g}
+                    title={!!contract.cde_g ? 'AMSC code already extracted' : 'Extract AMSC code from NSN details'}
                   >
                     <Database className="w-4 h-4 mr-2" />
-                    {isExtractingAmsc ? 'Extracting AMSC...' : 'Extract NSN AMSC Code'}
+                    {isExtractingAmsc ? 'Extracting AMSC...' : 'Extract AMSC Code'}
                   </Button>
-                </div>
-
-                <div className="mt-6 p-4 bg-muted rounded-lg">
-                  <h4 className="font-medium mb-2">Automation Status</h4>
-                  <p className="text-sm text-muted-foreground">
-                    RFQ PDF download and AMSC code extraction workflows are now fully implemented and integrated with GitHub Actions.
-                  </p>
                 </div>
               </CardContent>
             </Card>
