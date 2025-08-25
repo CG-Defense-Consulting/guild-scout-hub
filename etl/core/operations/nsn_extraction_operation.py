@@ -66,7 +66,7 @@ class NsnExtractionOperation(BaseOperation):
             
             timeout = inputs.get('timeout', 30)
             retry_attempts = inputs.get('retry_attempts', 3)
-            extract_fields = inputs.get('extract_fields', ['amsc_code', 'description', 'unit_of_issue'])
+            extract_fields = inputs.get('extract_fields', ['amsc_code'])
             base_url = inputs.get('base_url', 'https://www.dibbs.bsm.dla.mil')
             check_closed_status = inputs.get('check_closed_status', True)
             
@@ -309,6 +309,10 @@ class NsnExtractionOperation(BaseOperation):
             amsc_selectors = [
                 # DIBBS specific format - find the strong tag that comes after "AMSC:" in the legend
                 "//legend[contains(., 'AMSC:')]//strong[last()]",
+                # More specific: find the strong tag that follows "AMSC:" text in legend
+                "//legend[contains(., 'AMSC:')]//strong[position()>1]",
+                # Most targeted: find the strong tag that appears after "AMSC:" in the legend text
+                "//legend[contains(., 'AMSC:')]//strong[preceding-sibling::text()[contains(., 'AMSC:')]]",
                 # Alternative: look for any element containing AMSC: followed by a letter
                 "//*[contains(text(), 'AMSC:')]",
                 # Traditional table format
@@ -325,9 +329,9 @@ class NsnExtractionOperation(BaseOperation):
                     element_text = element.text.strip()
                     logger.info(f"🔍 NSN EXTRACTION: Element text: {element_text}")
                     
-                    if selector.startswith("//legend[contains(., 'AMSC:')]//strong[last()]"):
+                    if selector.startswith("//legend[contains(., 'AMSC:')]//strong[last()]") or selector.startswith("//legend[contains(., 'AMSC:')]//strong[position()>1]"):
                         logger.info(f"🔍 NSN EXTRACTION: Processing legend strong tag selector")
-                        # Handle DIBBS fieldset legend format: "AMSC: G"
+                        # Handle DIBBS fieldset legend format: "NSN: 5331-00-618-5361 Nomenclature: O-RING AMSC: T"
                         # We got the strong tag, but need to check if it contains the AMSC code
                         if element_text and len(element_text.strip()) == 1 and element_text.strip().isalpha():
                             # This looks like an AMSC code (single letter)
@@ -354,6 +358,17 @@ class NsnExtractionOperation(BaseOperation):
                                 logger.warning(f"⚠️ NSN EXTRACTION: AMSC code format invalid: '{amsc_code}'")
                         else:
                             logger.warning(f"⚠️ NSN EXTRACTION: No 'AMSC:' found in text")
+                    elif selector.startswith("//legend[contains(., 'AMSC:')]//strong[preceding-sibling::text()[contains(., 'AMSC:')]]"):
+                        logger.info(f"🔍 NSN EXTRACTION: Processing targeted legend strong tag selector")
+                        # Handle DIBBS fieldset legend format: "NSN: 5331-00-618-5361 Nomenclature: O-RING AMSC: T"
+                        # This selector should get the strong tag that appears after "AMSC:" text
+                        if element_text and len(element_text.strip()) == 1 and element_text.strip().isalpha():
+                            # This looks like an AMSC code (single letter)
+                            amsc_code = element_text.strip()
+                            logger.info(f"✅ NSN EXTRACTION: AMSC code extracted from targeted legend selector for NSN {nsn}: {amsc_code}")
+                            return amsc_code
+                        else:
+                            logger.warning(f"⚠️ NSN EXTRACTION: Targeted selector text doesn't look like AMSC code: '{element_text}'")
                     else:
                         # Handle traditional format
                         if element_text and len(element_text) > 0:
@@ -375,14 +390,18 @@ class NsnExtractionOperation(BaseOperation):
             amsc_patterns = [
                 r'AMSC[:\s]+([A-Z])',
                 r'AMSC Code[:\s]+([A-Z])',
-                r'AMSC\s*=\s*([A-Z])'
+                r'AMSC\s*=\s*([A-Z])',
+                # DIBBS specific pattern: "AMSC: T" in legend text
+                r'AMSC:\s*([A-Z])\s*',
+                # More specific DIBBS pattern with surrounding context
+                r'NSN:[^A]*Nomenclature:[^A]*AMSC:\s*([A-Z])'
             ]
             
             for pattern in amsc_patterns:
                 match = re.search(pattern, page_source, re.IGNORECASE)
                 if match:
                     amsc_code = match.group(1).upper()
-                    logger.info(f"AMSC code found via pattern for NSN {nsn}: {amsc_code}")
+                    logger.info(f"🔍 NSN EXTRACTION: AMSC code found via fallback pattern '{pattern}' for NSN {nsn}: {amsc_code}")
                     return amsc_code
             
             logger.warning(f"AMSC code not found for NSN {nsn}")

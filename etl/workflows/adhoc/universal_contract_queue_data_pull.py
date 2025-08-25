@@ -74,11 +74,11 @@ class UniversalContractQueueDataPuller:
             logger.info("DEBUG: Checking raw data in tables...")
             
             # Check universal_contract_queue
-            ucq_debug = self.supabase.table('universal_contract_queue').select('id').limit(5).execute()
+            ucq_debug = self.supabase.table('universal_contract_queue').select('id').limit(1).execute()
             logger.info(f"DEBUG: UCQ sample: {ucq_debug.data}")
             
             # Check rfq_index_extract
-            rie_debug = self.supabase.table('rfq_index_extract').select('id,cde_g,solicitation_number,national_stock_number').limit(5).execute()
+            rie_debug = self.supabase.table('rfq_index_extract').select('id,cde_g,solicitation_number,national_stock_number').limit(1).execute()
             logger.info(f"DEBUG: RIE sample: {rie_debug.data}")
             
             # Single JOIN query to get contracts with missing AMSC codes
@@ -137,7 +137,7 @@ class UniversalContractQueueDataPuller:
             if result:
                 # Check if our specific file exists in the list
                 for file_info in result:
-                    if file_info.get('name') == f"{solicitation_number}.pdf":
+                    if file_info.get('name').endswith(f"{solicitation_number}.pdf"):
                         logger.info(f"RFQ PDF found for solicitation {solicitation_number}")
                         return True
                 

@@ -127,14 +127,14 @@ class ClosedSolicitationCheckOperation(BaseOperation):
                     r"All solicitations are closed"
                 ]
             
-            if open_patterns is None:
-                open_patterns = [
-                    r"Open solicitations found",
-                    r"Active solicitations",
-                    r"Request for Quote is open",
-                    r"RFQ is open",
-                    r"Open RFQ solicitations"
-                ]
+            # if open_patterns is None:
+            #     open_patterns = [
+            #         r"Open solicitations found",
+            #         r"Active solicitations",
+            #         r"Request for Quote is open",
+            #         r"RFQ is open",
+            #         r"Open RFQ solicitations"
+            #     ]
             
             # Check for closed patterns
             for pattern in closed_patterns:
@@ -142,11 +142,11 @@ class ClosedSolicitationCheckOperation(BaseOperation):
                     logger.info(f"Closed solicitation detected with pattern: {pattern}")
                     return True
             
-            # Check for open patterns
-            for pattern in open_patterns:
-                if re.search(pattern, page_source, re.IGNORECASE):
-                    logger.info(f"Open solicitation detected with pattern: {pattern}")
-                    return False
+            # # Check for open patterns
+            # for pattern in open_patterns:
+            #     if re.search(pattern, page_source, re.IGNORECASE):
+            #         logger.info(f"Open solicitation detected with pattern: {pattern}")
+            #         return False
             
             # Also check for specific NSN closed message (common case)
             nsn_closed_pattern = r"No record of National Stock Number: (\w+) with open DIBBS Request For Quotes \(RFQ\) solicitations\."
@@ -176,25 +176,25 @@ class ClosedSolicitationCheckOperation(BaseOperation):
                 except:
                     continue
             
-            # Check for common open indicators in the DOM
-            open_indicators = [
-                "//*[contains(text(), 'open')]",
-                "//*[contains(text(), 'Open')]",
-                "//*[contains(text(), 'active')]",
-                "//*[contains(text(), 'Active')]"
-            ]
+            # # Check for common open indicators in the DOM
+            # open_indicators = [
+            #     "//*[contains(text(), 'open')]",
+            #     "//*[contains(text(), 'Open')]",
+            #     "//*[contains(text(), 'active')]",
+            #     "//*[contains(text(), 'Active')]"
+            # ]
             
-            for indicator in open_indicators:
-                try:
-                    elements = driver.find_elements(By.XPATH, indicator)
-                    for element in elements:
-                        if element.is_displayed():
-                            text = element.text.strip()
-                            if any(pattern.lower() in text.lower() for pattern in ['open', 'active']):
-                                logger.info(f"Open indicator found in DOM: {text}")
-                                return False
-                except:
-                    continue
+            # for indicator in open_indicators:
+            #     try:
+            #         elements = driver.find_elements(By.XPATH, indicator)
+            #         for element in elements:
+            #             if element.is_displayed():
+            #                 text = element.text.strip()
+            #                 if any(pattern.lower() in text.lower() for pattern in ['open', 'active']):
+            #                     logger.info(f"Open indicator found in DOM: {text}")
+            #                     return False
+            #     except:
+            #         continue
             
             # If we can't determine status, return None
             logger.warning("Could not determine solicitation closed status")
