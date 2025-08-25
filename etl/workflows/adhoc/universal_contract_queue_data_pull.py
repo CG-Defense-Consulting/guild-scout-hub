@@ -30,10 +30,12 @@ from core.operations import (
     BaseOperation, 
     ChromeSetupOperation, 
     ConsentPageOperation, 
-    NsnExtractionOperation,
+    AmscExtractionOperation,
+    ClosedSolicitationCheckOperation,
+    NsnPageNavigationOperation,
     SupabaseUploadOperation
 )
-from core.workflow_orchestrator import WorkflowOrchestrator, WorkflowStatus
+
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -129,10 +131,9 @@ class UniversalContractQueueDataPuller:
         """
         try:
             bucket_name = "docs"
-            file_path = f"rfq_pdfs/{solicitation_number}.pdf"
             
             # Try to get file metadata - if it exists, the file exists
-            result = self.supabase.storage.from_(bucket_name).list(path="rfq_pdfs")
+            result = self.supabase.storage.from_(bucket_name).list()
             
             if result:
                 # Check if our specific file exists in the list
@@ -206,195 +207,218 @@ class UniversalContractQueueDataPuller:
         
         return gaps
     
-    def create_workflow_for_contracts(self, contracts: List[Dict[str, Any]], 
-                                    contract_gaps: Dict[str, Dict[str, Any]],
-                                    headless: bool = True, timeout: int = 30,
-                                    retry_attempts: int = 3, batch_size: int = 50) -> WorkflowOrchestrator:
+
+
+    def execute_with_data_flow(self, headless: bool = True, timeout: int = 30,
+                              retry_attempts: int = 3, batch_size: int = 50,
+                              force_refresh: bool = False, limit: Optional[int] = None) -> Dict[str, Any]:
         """
-        Create a workflow for extracting AMSC codes and downloading RFQ PDFs.
+        Execute the universal contract queue workflow with proper data flow between operations.
+        
+        This method orchestrates the execution by:
+        1. Running Chrome setup once
+        2. Handling consent pages for all NSNs
+        3. Navigating to each NSN page and collecting HTML content
+        4. Processing the HTML content for closed status and AMSC extraction
+        5. Uploading results to Supabase
         
         Args:
-            contracts: List of contracts from universal_contract_queue
-            contract_gaps: Dictionary of data gaps for each contract
             headless: Whether to run Chrome in headless mode
             timeout: Timeout for page operations
             retry_attempts: Number of retry attempts for each operation
             batch_size: Size of batches for database uploads
+            force_refresh: Force refresh even if data already exists
+            limit: Optional limit on number of contracts to process
             
         Returns:
-            Configured WorkflowOrchestrator instance
+            Dictionary containing workflow results and summary
         """
-        
-        # Filter contracts that should be processed
-        contracts_to_process = [
-            contract_id for contract_id, gaps in contract_gaps.items() 
-            if gaps.get('should_process', False)
-        ]
-        
-        if not contracts_to_process:
-            logger.info("No contracts need processing")
-            workflow = WorkflowOrchestrator(
-                name="universal_contract_queue_data_pull",
-                description="No contracts need processing"
-            )
-            return workflow
-        
-        logger.info(f"Creating workflow for {len(contracts_to_process)} contracts")
-        
-        # Create workflow orchestrator
-        workflow = WorkflowOrchestrator(
-            name="universal_contract_queue_data_pull",
-            description=f"Extract AMSC codes and download RFQ PDFs for {len(contracts_to_process)} contracts"
-        )
-        
-        # Step 1: Chrome Setup (runs once)
-        chrome_setup = ChromeSetupOperation(headless=headless)
-        workflow.add_step(
-            operation=chrome_setup,
-            inputs={},
-            depends_on=[],
-            batch_config={}
-        )
-        
-        # Build NSN list for processing
-        nsn_list = []
-        for contract_id in contracts_to_process:
-            gaps = contract_gaps[contract_id]
-            nsn = gaps.get('nsn')
-            if nsn:
-                nsn_list.append(nsn)
-        
-        # Step 2: Handle consent pages for all NSNs
-        if nsn_list:
-            consent_page = ConsentPageOperation()
-            workflow.add_step(
-                operation=consent_page,
-                inputs={'timeout': timeout, 'retry_attempts': retry_attempts},
-                depends_on=['chrome_setup'],
-                batch_config={'items': nsn_list}
-            )
+        try:
+            logger.info("🚀 WORKFLOW: Starting universal contract queue data pull with data flow orchestration")
             
-            # Step 3: Extract AMSC codes for all contracts (after consent)
-            nsn_extraction = NsnExtractionOperation()
-            workflow.add_step(
-                operation=nsn_extraction,
-                inputs={'timeout': timeout, 'retry_attempts': retry_attempts},
-                depends_on=['consent_page'],  # Now depends on consent page, not chrome setup
-                batch_config={'items': nsn_list}
-            )
-        
-        # Step 4: Download RFQ PDFs for contracts that need them (after consent)
-        contracts_needing_pdfs = [
-            contract_id for contract_id in contracts_to_process
-            if contract_gaps[contract_id].get('needs_rfq_pdf', False)
-        ]
-        
-        if contracts_needing_pdfs:
-            # Get solicitation numbers for PDF download
-            solicitation_numbers = []
-            for contract_id in contracts_needing_pdfs:
+            # Step 1: Create and execute Chrome setup
+            chrome_setup = ChromeSetupOperation(headless=headless)
+            chrome_result = chrome_setup.execute({}, {})
+            
+            if not chrome_result.success:
+                logger.error(f"❌ WORKFLOW: Chrome setup failed: {chrome_result.error}")
+                return {
+                    'success': False,
+                    'status': 'failed',
+                    'error': f"Chrome setup failed: {chrome_result.error}"
+                }
+            
+            chrome_driver = chrome_result.data.get('driver')
+            logger.info("✅ WORKFLOW: Chrome setup completed successfully")
+            
+            # Step 2: Query contracts needing processing
+            contracts = self.query_contracts_needing_processing(limit=limit)
+            
+            if not contracts:
+                logger.info("ℹ️ WORKFLOW: No contracts need processing")
+                return {
+                    'success': True,
+                    'status': 'completed',
+                    'contracts_processed': 0,
+                    'message': 'No contracts need processing'
+                }
+            
+            # Step 3: Analyze data gaps
+            contract_gaps = self.analyze_contract_data_gaps(contracts)
+            contracts_to_process = [
+                contract_id for contract_id, gaps in contract_gaps.items() 
+                if gaps.get('should_process', False)
+            ]
+            
+            if not contracts_to_process:
+                logger.info("ℹ️ WORKFLOW: No contracts need processing based on gaps")
+                return {
+                    'success': True,
+                    'status': 'completed',
+                    'contracts_processed': 0,
+                    'message': 'No contracts need processing based on gaps'
+                }
+            
+            logger.info(f"🚀 WORKFLOW: Processing {len(contracts_to_process)} contracts")
+            
+            # Step 4: Build NSN list
+            nsn_list = []
+            for contract_id in contracts_to_process:
                 gaps = contract_gaps[contract_id]
-                solicitation_number = gaps.get('solicitation_number')
-                if solicitation_number:
-                    solicitation_numbers.append(solicitation_number)
+                nsn = gaps.get('nsn')
+                if nsn:
+                    nsn_list.append(nsn)
             
-            if solicitation_numbers:
-                from core.operations import RfqPdfDownloadOperation
-                rfq_pdf_download = RfqPdfDownloadOperation()
-                workflow.add_step(
-                    operation=rfq_pdf_download,
-                    inputs={'timeout': timeout, 'retry_attempts': retry_attempts},
-                    depends_on=['consent_page'],  # Now depends on consent page handling
-                    batch_config={'items': solicitation_numbers}
-                )
-                logger.info(f"Added RFQ PDF download for {len(solicitation_numbers)} solicitations")
-        
-        # Step 5: Upload extracted data to Supabase
-        if nsn_list:
-            supabase_upload = SupabaseUploadOperation()
-            workflow.add_step(
-                operation=supabase_upload,
-                inputs={'batch_size': batch_size, 'table_name': 'rfq_index_extract'},
-                depends_on=['nsn_extraction'],
-                batch_config={}
+            if not nsn_list:
+                logger.info("ℹ️ WORKFLOW: No NSNs found for processing")
+                return {
+                    'success': True,
+                    'status': 'completed',
+                    'contracts_processed': 0,
+                    'message': 'No NSNs found for processing'
+                }
+            
+            logger.info(f"🚀 WORKFLOW: Processing {len(nsn_list)} NSNs: {nsn_list}")
+            
+            # Step 5: Handle consent pages for all NSNs
+            consent_page = ConsentPageOperation()
+            consent_results = consent_page.apply_to_batch(
+                items=nsn_list,
+                inputs={'timeout': timeout, 'retry_attempts': retry_attempts},
+                context={'chrome_driver': chrome_driver}
             )
-        
-        return workflow
-
-def create_universal_contract_queue_workflow(headless: bool = True, timeout: int = 30,
-                                           retry_attempts: int = 3, batch_size: int = 50,
-                                           force_refresh: bool = False, limit: Optional[int] = None) -> WorkflowOrchestrator:
-    """
-    Create a workflow for pulling data for contracts in the universal contract queue.
-    
-    This workflow INTERNALLY queries the universal_contract_queue table to find
-    contracts that need processing based on predefined conditions.
-    
-    Args:
-        headless: Whether to run Chrome in headless mode
-        timeout: Timeout for page operations
-        retry_attempts: Number of retry attempts for each operation
-        batch_size: Size of batches for database uploads
-        force_refresh: Force refresh even if data already exists
-        limit: Optional limit on number of contracts to process
-        
-    Returns:
-        Configured WorkflowOrchestrator instance
-    """
-    
-    logger.info("Creating universal contract queue data pull workflow")
-    
-    # Initialize Supabase client for data gap analysis
-    try:
-        from core.uploaders.supabase_uploader import SupabaseUploader
-        supabase_client = SupabaseUploader().supabase
-        
-        if not supabase_client:
-            logger.error("Failed to initialize Supabase client - no client available")
-            raise RuntimeError("Supabase client not available")
             
-    except Exception as e:
-        logger.error(f"Failed to initialize Supabase client: {str(e)}")
-        raise
-    
-    # Create data puller and query contracts needing processing
-    data_puller = UniversalContractQueueDataPuller(supabase_client)
-    contracts = data_puller.query_contracts_needing_processing(limit=limit)
-    
-    if not contracts:
-        logger.info("No contracts found in universal_contract_queue that need processing")
-        # Return empty workflow
-        workflow = WorkflowOrchestrator(
-            name="universal_contract_queue_data_pull",
-            description="No contracts need processing"
-        )
-        return workflow
-    
-    # Analyze data gaps for the found contracts
-    contract_gaps = data_puller.analyze_contract_data_gaps(contracts)
-    
-    # Log analysis results
-    logger.info("Contract data gap analysis completed:")
-    for contract_id, gaps in contract_gaps.items():
-        contract_data = gaps.get('contract_data', {})
-        logger.info(f"Contract {contract_id} ({contract_data.get('solicitation_number', 'N/A')}):")
-        logger.info(f"  - NSN: {gaps.get('nsn', 'N/A')}")
-        logger.info(f"  - RFQ PDF exists: {gaps.get('rfq_pdf_exists', False)}")
-        logger.info(f"  - AMSC code exists: {gaps.get('existing_amsc', 'N/A')}")
-        logger.info(f"  - Should process: {gaps.get('should_process', False)}")
-        logger.info(f"  - Action reason: {gaps.get('action_reason', 'N/A')}")
-    
-    # Create workflow based on gaps
-    workflow = data_puller.create_workflow_for_contracts(
-        contracts=contracts,
-        contract_gaps=contract_gaps,
-        headless=headless,
-        timeout=timeout,
-        retry_attempts=retry_attempts,
-        batch_size=batch_size
-    )
-    
-    return workflow
+            consent_successful = [r for r in consent_results if r.success]
+            logger.info(f"✅ WORKFLOW: Consent page handling completed. {len(consent_successful)}/{len(nsn_list)} successful")
+            
+            # Step 6: Navigate to NSN pages and collect HTML content
+            nsn_navigation = NsnPageNavigationOperation()
+            navigation_results = nsn_navigation.apply_to_batch(
+                items=nsn_list,
+                inputs={'timeout': timeout, 'retry_attempts': retry_attempts, 'chrome_driver': chrome_driver},
+                context={'chrome_driver': chrome_driver}
+            )
+            
+            navigation_successful = [r for r in navigation_results if r.success]
+            logger.info(f"✅ WORKFLOW: NSN navigation completed. {len(navigation_successful)}/{len(nsn_list)} successful")
+            
+            # Step 7: Process HTML content for closed status and AMSC extraction
+            closed_status_results = []
+            amsc_extraction_results = []
+            
+            for i, nav_result in enumerate(navigation_results):
+                if nav_result.success:
+                    nsn = nsn_list[i]
+                    html_content = nav_result.data.get('html_content')
+                    
+                    if html_content:
+                        # Check closed status
+                        closed_check = ClosedSolicitationCheckOperation()
+                        closed_result = closed_check.execute(
+                            inputs={'html_content': html_content, 'nsn': nsn},
+                            context={}
+                        )
+                        closed_status_results.append(closed_result)
+                        
+                        # Extract AMSC code
+                        amsc_extraction = AmscExtractionOperation()
+                        amsc_result = amsc_extraction.execute(
+                            inputs={'html_content': html_content, 'nsn': nsn},
+                            context={}
+                        )
+                        amsc_extraction_results.append(amsc_result)
+                        
+                        logger.info(f"🔍 WORKFLOW: Processed NSN {nsn} - Closed: {closed_result.data.get('is_closed')}, AMSC: {amsc_result.data.get('amsc_code')}")
+                    else:
+                        logger.warning(f"⚠️ WORKFLOW: No HTML content for NSN {nsn}")
+                else:
+                    logger.error(f"❌ WORKFLOW: Navigation failed for NSN {nsn_list[i]}: {nav_result.error}")
+            
+            logger.info(f"✅ WORKFLOW: Content processing completed. {len(closed_status_results)}/{len(nsn_list)} closed status checks, {len(amsc_extraction_results)}/{len(nsn_list)} AMSC extractions")
+            
+            # Step 8: Upload results to Supabase
+            supabase_upload = SupabaseUploadOperation()
+            
+            # Prepare data for upload
+            upload_data = []
+            for i, contract_id in enumerate(contracts_to_process):
+                if i < len(amsc_extraction_results) and i < len(closed_status_results):
+                    amsc_result = amsc_extraction_results[i]
+                    closed_result = closed_status_results[i]
+                    
+                    if amsc_result.success and closed_result.success:
+                        upload_data.append({
+                            'contract_id': contract_id,
+                            'nsn': nsn_list[i] if i < len(nsn_list) else None,
+                            'amsc_code': amsc_result.data.get('amsc_code'),
+                            'is_closed': closed_result.data.get('is_closed'),
+                            'processed_at': 'now()'
+                        })
+            
+            if upload_data:
+                upload_result = supabase_upload.execute(
+                    inputs={'data': upload_data, 'batch_size': batch_size, 'table_name': 'rfq_index_extract'},
+                    context={}
+                )
+                
+                if upload_result.success:
+                    logger.info(f"✅ WORKFLOW: Supabase upload completed. {len(upload_data)} records uploaded")
+                else:
+                    logger.error(f"❌ WORKFLOW: Supabase upload failed: {upload_result.error}")
+            else:
+                logger.warning("⚠️ WORKFLOW: No data to upload")
+            
+            # Step 9: Cleanup
+            try:
+                if chrome_driver:
+                    chrome_driver.quit()
+                    logger.info("🧹 WORKFLOW: Chrome driver cleaned up")
+            except Exception as e:
+                logger.warning(f"⚠️ WORKFLOW: Error during Chrome cleanup: {str(e)}")
+            
+            # Return results summary
+            return {
+                'success': True,
+                'status': 'completed',
+                'contracts_processed': len(contracts_to_process),
+                'nsns_processed': len(nsn_list),
+                'consent_successful': len(consent_successful),
+                'navigation_successful': len(navigation_successful),
+                'closed_status_checks': len(closed_status_results),
+                'amsc_extractions': len(amsc_extraction_results),
+                'records_uploaded': len(upload_data) if 'upload_data' in locals() else 0,
+                'message': 'Universal contract queue workflow completed successfully'
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ WORKFLOW: Universal contract queue workflow failed: {str(e)}")
+            return {
+                'success': False,
+                'status': 'failed',
+                'error': str(e)
+            }
+
+
 
 def execute_universal_contract_queue_workflow(headless: bool = True, timeout: int = 30,
                                             retry_attempts: int = 3, batch_size: int = 50,
@@ -418,8 +442,24 @@ def execute_universal_contract_queue_workflow(headless: bool = True, timeout: in
     """
     
     try:
-        # Create workflow
-        workflow = create_universal_contract_queue_workflow(
+        # Initialize Supabase client for data gap analysis
+        try:
+            from core.uploaders.supabase_uploader import SupabaseUploader
+            supabase_client = SupabaseUploader().supabase
+            
+            if not supabase_client:
+                logger.error("Failed to initialize Supabase client - no client available")
+                raise RuntimeError("Supabase client not available")
+                
+        except Exception as e:
+            logger.error(f"Failed to initialize Supabase client: {str(e)}")
+            raise
+        
+        # Create data puller and execute with data flow orchestration
+        data_puller = UniversalContractQueueDataPuller(supabase_client)
+        
+        logger.info("Starting universal contract queue data pull workflow with data flow orchestration")
+        execution_result = data_puller.execute_with_data_flow(
             headless=headless,
             timeout=timeout,
             retry_attempts=retry_attempts,
@@ -428,44 +468,17 @@ def execute_universal_contract_queue_workflow(headless: bool = True, timeout: in
             limit=limit
         )
         
-        # Check if workflow has any steps
-        if not workflow.steps:
-            logger.info("No workflow steps to execute - all contracts are up to date")
-            return {
-                'workflow_name': workflow.name,
-                'status': 'completed',
-                'contracts_processed': 0,
-                'message': 'No contracts need processing based on business logic'
-            }
-        
-        # Execute the workflow
-        logger.info("Starting universal contract queue data pull workflow execution")
-        execution_result = workflow.execute()
-        
-        if execution_result['status'] == WorkflowStatus.COMPLETED:
+        if execution_result.get('success'):
             logger.info("Universal contract queue data pull workflow completed successfully")
-            results = execution_result['results']
-            logger.info(f"Workflow completed with {len(results)} step results")
+            logger.info(f"Contracts processed: {execution_result.get('contracts_processed', 0)}")
+            logger.info(f"NSNs processed: {execution_result.get('nsns_processed', 0)}")
+            logger.info(f"Records uploaded: {execution_result.get('records_uploaded', 0)}")
             
-            # Log step results
-            for i, result in enumerate(results):
-                logger.info(f"Step {i+1}: {result.status} - {result.metadata if result.metadata else 'No metadata'}")
-            
-            return {
-                'success': True,
-                'status': 'completed',
-                'steps_executed': len(results),
-                'results': results
-            }
+            return execution_result
         else:
             error_msg = execution_result.get('error', 'Unknown workflow error')
             logger.error(f"Universal contract queue data pull workflow failed: {error_msg}")
-            return {
-                'success': False,
-                'status': 'failed',
-                'error': error_msg,
-                'steps_executed': len(execution_result.get('results', []))
-            }
+            return execution_result
         
     except Exception as e:
         error_msg = f"Universal contract queue data pull workflow failed: {str(e)}"
@@ -476,15 +489,6 @@ def execute_universal_contract_queue_workflow(headless: bool = True, timeout: in
             'status': 'failed',
             'error': error_msg
         }
-    
-    finally:
-        # Clean up workflow resources
-        if 'workflow' in locals():
-            try:
-                workflow.cleanup()
-                logger.info("Workflow cleanup completed")
-            except Exception as e:
-                logger.warning(f"Error during workflow cleanup: {str(e)}")
 
 def main():
     """Main entry point for command line usage."""
@@ -515,17 +519,17 @@ def main():
     )
     
     # Output results
-    if result['status'] == 'completed':
+    if result.get('success'):
         logger.info("Universal contract queue data pull completed successfully")
         
         # Print summary
-        if 'nsn_extraction' in result:
-            nsn_summary = result['nsn_extraction']
-            logger.info(f"NSN Extraction: {nsn_summary['status']}")
-        
-        if 'chrome_setup' in result:
-            chrome_summary = result['chrome_setup']
-            logger.info(f"Chrome Setup: {chrome_summary['status']}")
+        logger.info(f"Contracts processed: {result.get('contracts_processed', 0)}")
+        logger.info(f"NSNs processed: {result.get('nsns_processed', 0)}")
+        logger.info(f"Consent pages handled: {result.get('consent_successful', 0)}")
+        logger.info(f"Navigation successful: {result.get('navigation_successful', 0)}")
+        logger.info(f"Closed status checks: {result.get('closed_status_checks', 0)}")
+        logger.info(f"AMSC extractions: {result.get('amsc_extractions', 0)}")
+        logger.info(f"Records uploaded: {result.get('records_uploaded', 0)}")
         
         sys.exit(0)
     else:
