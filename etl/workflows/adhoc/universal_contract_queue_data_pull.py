@@ -27,10 +27,10 @@ from typing import List, Dict, Any, Optional
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from core.operations import (
+    BaseOperation, 
     ChromeSetupOperation, 
     ConsentPageOperation, 
     NsnExtractionOperation,
-    ClosedSolicitationCheckOperation,
     SupabaseUploadOperation
 )
 from core.workflow_orchestrator import WorkflowOrchestrator
