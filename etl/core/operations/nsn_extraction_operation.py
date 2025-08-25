@@ -31,12 +31,9 @@ class NsnExtractionOperation(BaseOperation):
     """
     
     def __init__(self):
-        super().__init__(
-            name="nsn_extraction",
-            description="Extract NSN data from DIBBS pages"
-        )
+        super().__init__(name="nsn_extraction", description="Extract AMSC codes from DIBBS pages")
         self.set_required_inputs(['nsn'])
-        self.set_optional_inputs(['timeout', 'retry_attempts', 'extract_fields', 'base_url', 'check_closed_status'])
+        self.set_optional_inputs(['timeout', 'retry_attempts', 'base_url', 'check_closed_status'])
 
     def _execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> OperationResult:
         """
@@ -126,34 +123,20 @@ class NsnExtractionOperation(BaseOperation):
             amsc_code = self._extract_amsc_code(driver, nsn)
             logger.info(f"🔍 NSN EXTRACTION: AMSC code extracted: {amsc_code}")
             
-            # Extract description
-            logger.info(f"🔍 NSN EXTRACTION: Extracting description...")
-            description = self._extract_description(driver, nsn)
-            logger.info(f"🔍 NSN EXTRACTION: Description extracted: {description[:100] if description else None}...")
-            
-            # Extract unit of issue
-            logger.info(f"🔍 NSN EXTRACTION: Extracting unit of issue...")
-            unit_of_issue = self._extract_unit_of_issue(driver, nsn)
-            logger.info(f"🔍 NSN EXTRACTION: Unit of issue extracted: {unit_of_issue}")
-            
-            # Check if we got any useful data
+            # Check if we got the AMSC code
             extracted_data = {
                 'nsn': nsn,
                 'amsc_code': amsc_code,
-                'description': description,
-                'unit_of_issue': unit_of_issue,
                 'is_closed': False
             }
             
             logger.info(f"🔍 NSN EXTRACTION: Final extracted data summary:")
             logger.info(f"🔍 NSN EXTRACTION:   - NSN: {nsn}")
             logger.info(f"🔍 NSN EXTRACTION:   - AMSC Code: {amsc_code}")
-            logger.info(f"🔍 NSN EXTRACTION:   - Description: {description[:50] if description else None}...")
-            logger.info(f"🔍 NSN EXTRACTION:   - Unit of Issue: {unit_of_issue}")
             logger.info(f"🔍 NSN EXTRACTION:   - Is Closed: False")
             
-            if amsc_code or description or unit_of_issue:
-                logger.info(f"✅ NSN EXTRACTION: Successfully extracted data for NSN: {nsn}")
+            if amsc_code:
+                logger.info(f"✅ NSN EXTRACTION: Successfully extracted AMSC code for NSN: {nsn}")
                 return OperationResult(
                     success=True,
                     status=OperationStatus.COMPLETED,
@@ -161,7 +144,7 @@ class NsnExtractionOperation(BaseOperation):
                     metadata={'data_extracted': True, 'final_url': driver.current_url}
                 )
             else:
-                logger.warning(f"⚠️ NSN EXTRACTION: No data extracted for NSN: {nsn}")
+                logger.warning(f"⚠️ NSN EXTRACTION: No AMSC code extracted for NSN: {nsn}")
                 return OperationResult(
                     success=True,
                     status=OperationStatus.COMPLETED,
