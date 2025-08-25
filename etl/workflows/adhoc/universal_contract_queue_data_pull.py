@@ -256,24 +256,26 @@ class UniversalContractQueueDataPuller:
             batch_config={}
         )
         
-        # Step 2: Extract AMSC codes for all contracts
-        nsn_list = []
-        for contract_id in contracts_to_process:
-            gaps = contract_gaps[contract_id]
-            nsn = gaps.get('nsn')
-            if nsn:
-                nsn_list.append(nsn)
-        
+        # Step 2: Handle consent pages for all NSNs
         if nsn_list:
-            nsn_extraction = NsnExtractionOperation()
+            consent_page = ConsentPageOperation()
             workflow.add_step(
-                operation=nsn_extraction,
+                operation=consent_page,
                 inputs={'timeout': timeout, 'retry_attempts': retry_attempts},
                 depends_on=['chrome_setup'],
                 batch_config={'items': nsn_list}
             )
+            
+            # Step 3: Extract AMSC codes for all contracts (after consent)
+            nsn_extraction = NsnExtractionOperation()
+            workflow.add_step(
+                operation=nsn_extraction,
+                inputs={'timeout': timeout, 'retry_attempts': retry_attempts},
+                depends_on=['consent_page'],  # Now depends on consent page, not chrome setup
+                batch_config={'items': nsn_list}
+            )
         
-        # Step 3: Download RFQ PDFs for contracts that need them
+        # Step 4: Download RFQ PDFs for contracts that need them (after consent)
         contracts_needing_pdfs = [
             contract_id for contract_id in contracts_to_process
             if contract_gaps[contract_id].get('needs_rfq_pdf', False)
@@ -294,12 +296,12 @@ class UniversalContractQueueDataPuller:
                 workflow.add_step(
                     operation=rfq_pdf_download,
                     inputs={'timeout': timeout, 'retry_attempts': retry_attempts},
-                    depends_on=['chrome_setup'],
+                    depends_on=['consent_page'],  # Now depends on consent page handling
                     batch_config={'items': solicitation_numbers}
                 )
                 logger.info(f"Added RFQ PDF download for {len(solicitation_numbers)} solicitations")
         
-        # Step 4: Upload extracted data to Supabase
+        # Step 5: Upload extracted data to Supabase
         if nsn_list:
             supabase_upload = SupabaseUploadOperation()
             workflow.add_step(

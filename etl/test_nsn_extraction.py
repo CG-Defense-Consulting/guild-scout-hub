@@ -30,7 +30,10 @@ def test_nsn_extraction():
         # Set up Chrome
         logger.info("🧪 Setting up Chrome...")
         chrome_setup = ChromeSetupOperation(headless=True)
-        chrome_result = chrome_setup.execute({}, {})
+        
+        # Create empty context that will be populated by ChromeSetupOperation
+        context = {}
+        chrome_result = chrome_setup.execute({}, context)
         
         if not chrome_result.success:
             logger.error(f"❌ Chrome setup failed: {chrome_result.error}")
