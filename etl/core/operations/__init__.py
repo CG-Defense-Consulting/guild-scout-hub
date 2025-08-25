@@ -16,7 +16,7 @@ __all__ = [
     'BaseOperation',
     'ChromeSetupOperation',
     'ConsentPageOperation',
-    'NsnExtractionOperation', 
+    'NsnExtractionOperation',
     'ClosedSolicitationCheckOperation',
     'SupabaseUploadOperation'
 ]

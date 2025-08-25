@@ -4,10 +4,6 @@ on:
   # Manual trigger from GitHub UI
   workflow_dispatch:
     inputs:
-      contract_ids:
-        description: 'Comma-separated list of contract IDs from universal_contract_queue to process'
-        required: true
-        type: string
       force_refresh:
         description: 'Force refresh even if data already exists'
         required: false
@@ -38,6 +34,11 @@ on:
         required: false
         type: boolean
         default: false
+      limit:
+        description: 'Limit number of contracts to process (optional)'
+        required: false
+        type: number
+        default: 0
   
   # Allow triggering via API/webhook
   repository_dispatch:
@@ -141,33 +142,12 @@ jobs:
           cd etl
           mkdir -p downloads logs
           
-      - name: Parse Contract IDs
-        id: parse-inputs
-        run: |
-          cd etl
-          
-          # Parse contract IDs from comma-separated input
-          CONTRACT_IDS_INPUT="${{ github.event.inputs.contract_ids || github.event.client_payload.contract_ids || '' }}"
-          if [ -z "$CONTRACT_IDS_INPUT" ]; then
-            echo "Error: No contract IDs provided"
-            exit 1
-          fi
-          
-          # Convert comma-separated to space-separated for argparse
-          CONTRACT_IDS_LIST=$(echo "$CONTRACT_IDS_INPUT" | tr ',' ' ')
-          echo "CONTRACT_IDS_LIST=$CONTRACT_IDS_LIST" >> $GITHUB_ENV
-          echo "contract_ids_count=$(echo "$CONTRACT_IDS_LIST" | wc -w)" >> $GITHUB_ENV
-          
-          echo "Parsed inputs:"
-          echo "  Contract IDs: $CONTRACT_IDS_LIST"
-          echo "  Contract ID count: $(echo "$CONTRACT_IDS_LIST" | wc -w)"
-          
       - name: Execute Universal Contract Queue Data Pull Workflow
         run: |
           cd etl
           
           # Build command arguments
-          CMD_ARGS="python workflows/adhoc/universal_contract_queue_data_pull.py --contract-ids $CONTRACT_IDS_LIST"
+          CMD_ARGS="python workflows/adhoc/universal_contract_queue_data_pull.py"
           
           # Add optional arguments
           if [ "${{ github.event.inputs.force_refresh }}" = "true" ]; then
@@ -194,8 +174,12 @@ jobs:
             CMD_ARGS="$CMD_ARGS --verbose"
           fi
           
+          if [ "${{ github.event.inputs.limit }}" != "0" ]; then
+            CMD_ARGS="$CMD_ARGS --limit ${{ github.event.inputs.limit }}"
+          fi
+          
           echo "Executing command: $CMD_ARGS"
-          echo "Processing ${{ steps.parse-inputs.outputs.contract_ids_count }} contracts from universal contract queue"
+          echo "Workflow will internally query universal_contract_queue to discover contracts needing processing"
           
           # Execute the workflow
           eval $CMD_ARGS
@@ -225,11 +209,12 @@ jobs:
           echo "=== Universal Contract Queue Data Pull Workflow Summary ==="
           echo "Workflow: Universal Contract Queue Data Pull"
           echo "Status: ${{ job.status }}"
-          echo "Contracts Processed: ${{ steps.parse-inputs.outputs.contract_ids_count }}"
+          echo "Data Discovery: Internal query of universal_contract_queue table"
           echo "Data Types Pulled:"
           echo "  - AMSC Codes (conditional)"
           echo "  - RFQ PDFs (conditional)"
           echo "  - Solicitation Open/Closed Status (conditional)"
           echo "Chrome Setup: Shared instance for all operations"
-          echo "Conditional Logic: Applied based on existing data"
+          echo "Conditional Logic: Applied based on existing data gaps"
+          echo "Contract Selection: Automatically determined by workflow"
           echo "========================================================="

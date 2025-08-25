@@ -10,13 +10,11 @@ Use Case: Pull data for contracts in the universal contract queue
 Implementation: Uses modular operations (Chrome Setup, Consent Page, NSN Extraction, etc.)
 
 Business Logic:
-1. FIRST check if RFQ PDF exists in Supabase bucket
-2. If RFQ PDF does NOT exist:
-   - Check if AMSC code is empty
-   - If AMSC code is empty: Extract AMSC code AND download RFQ PDF
-   - If AMSC code is filled: Do nothing (PDF issue, don't touch)
-3. If RFQ PDF exists: Do nothing (already processed)
-4. While extracting AMSC code, if we see "no open solicitation" language, mark as closed
+1. INTERNALLY query universal_contract_queue for contracts with missing data
+2. Apply predefined conditions to filter contracts that need processing
+3. If AMSC code is missing: Extract AMSC code
+4. If RFQ PDF is missing: Download RFQ PDF  
+5. While extracting AMSC code, if we see "no open solicitation" language, mark as closed
 """
 
 import argparse
@@ -44,10 +42,10 @@ class UniversalContractQueueDataPuller:
     """
     Handles the business logic for pulling data for contracts in the universal contract queue.
     
-    This class implements the specific business logic:
-    1. Check RFQ PDF existence first
-    2. Apply conditional logic based on PDF existence and AMSC code status
-    3. Only run operations when both conditions are met
+    This class:
+    1. INTERNALLY queries universal_contract_queue to find contracts with missing data
+    2. Applies predefined filtering conditions to determine what needs to be pulled
+    3. Orchestrates the appropriate operations based on data gaps
     """
     
     def __init__(self, supabase_client):
@@ -58,6 +56,86 @@ class UniversalContractQueueDataPuller:
             supabase_client: Supabase client for database operations
         """
         self.supabase = supabase_client
+    
+    def query_contracts_needing_processing(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        INTERNALLY query universal_contract_queue for contracts that need processing.
+        
+        This method applies predefined conditions to filter contracts:
+        - Contracts with missing AMSC codes (cde_g is NULL)
+        - Contracts with missing RFQ PDFs
+        - Contracts with unknown closed status
+        
+        Args:
+            limit: Optional limit on number of contracts to process
+            
+        Returns:
+            List of contract data that needs processing
+        """
+        try:
+            logger.info("Querying universal_contract_queue for contracts needing processing...")
+            
+            # Build the query to find contracts with missing data
+            # We join with rfq_index_extract to check existing data status
+            query = """
+                SELECT 
+                    ucq.id as contract_id,
+                    ucq.solicitation_number,
+                    ucq.national_stock_number,
+                    ucq.contract_title,
+                    ucq.contracting_office,
+                    ucq.contract_value,
+                    ucq.contract_status,
+                    ucq.award_date,
+                    ucq.contractor_name,
+                    rie.cde_g as existing_amsc,
+                    rie.closed as existing_closed_status,
+                    rie.id as rfq_index_id
+                FROM universal_contract_queue ucq
+                LEFT JOIN rfq_index_extract rie ON ucq.id = rie.id
+                WHERE (
+                    -- Condition 1: Missing AMSC code
+                    rie.cde_g IS NULL
+                    OR
+                    -- Condition 2: Missing closed status
+                    rie.closed IS NULL
+                    OR
+                    -- Condition 3: Missing RFQ PDF (we'll check this separately)
+                    rie.id IS NULL
+                )
+                AND ucq.national_stock_number IS NOT NULL
+                AND ucq.national_stock_number != ''
+                ORDER BY ucq.award_date DESC NULLS LAST
+            """
+            
+            if limit:
+                query += f" LIMIT {limit}"
+            
+            # Execute the query
+            result = self.supabase.rpc('exec_sql', {'sql_query': query}).execute()
+            
+            if not result.data:
+                logger.info("No contracts found needing processing")
+                return []
+            
+            contracts = result.data
+            logger.info(f"Found {len(contracts)} contracts needing processing")
+            
+            # Log summary of what needs processing
+            missing_amsc = len([c for c in contracts if c.get('existing_amsc') is None])
+            missing_closed = len([c for c in contracts if c.get('existing_closed_status') is None])
+            missing_rfq = len([c for c in contracts if c.get('rfq_index_id') is None])
+            
+            logger.info(f"Processing Summary:")
+            logger.info(f"  - Missing AMSC codes: {missing_amsc}")
+            logger.info(f"  - Missing closed status: {missing_closed}")
+            logger.info(f"  - Missing RFQ index: {missing_rfq}")
+            
+            return contracts
+            
+        except Exception as e:
+            logger.error(f"Error querying contracts needing processing: {str(e)}")
+            raise
     
     def check_rfq_pdf_exists(self, contract_id: str) -> bool:
         """
@@ -98,7 +176,7 @@ class UniversalContractQueueDataPuller:
             # If we can't determine, assume it doesn't exist to be safe
             return False
     
-    def analyze_contract_data_gaps(self, contract_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    def analyze_contract_data_gaps(self, contracts: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
         """
         Analyze contracts to determine what data is missing and needs to be pulled.
         
@@ -108,23 +186,27 @@ class UniversalContractQueueDataPuller:
         3. Apply conditional logic based on both conditions
         
         Args:
-            contract_ids: List of contract IDs to analyze
+            contracts: List of contracts from universal_contract_queue
             
         Returns:
             Dictionary mapping contract IDs to their data gaps and action decisions
         """
         gaps = {}
         
-        for contract_id in contract_ids:
+        for contract in contracts:
+            contract_id = contract['contract_id']
             contract_gaps = {
                 'needs_amsc': False,
                 'needs_rfq_pdf': False,
                 'needs_closed_status': False,
                 'should_process': False,  # Whether we should run any operations
                 'action_reason': '',      # Why we're processing or not
-                'nsn': None,
-                'existing_amsc': None,
-                'rfq_pdf_exists': False
+                'nsn': contract.get('national_stock_number'),
+                'solicitation_number': contract.get('solicitation_number'),
+                'existing_amsc': contract.get('existing_amsc'),
+                'existing_closed_status': contract.get('existing_closed_status'),
+                'rfq_pdf_exists': False,
+                'contract_data': contract  # Keep full contract data for reference
             }
             
             try:
@@ -133,44 +215,41 @@ class UniversalContractQueueDataPuller:
                 contract_gaps['rfq_pdf_exists'] = rfq_pdf_exists
                 
                 if rfq_pdf_exists:
-                    # RFQ PDF exists - do nothing
-                    contract_gaps['should_process'] = False
-                    contract_gaps['action_reason'] = 'RFQ PDF already exists in bucket'
-                    logger.info(f"Contract {contract_id}: RFQ PDF exists, no processing needed")
+                    # RFQ PDF exists - check if we still need other data
+                    needs_other_data = (
+                        contract_gaps['existing_amsc'] is None or 
+                        contract_gaps['existing_closed_status'] is None
+                    )
+                    
+                    if needs_other_data:
+                        # PDF exists but we need other data
+                        contract_gaps['needs_amsc'] = contract_gaps['existing_amsc'] is None
+                        contract_gaps['needs_closed_status'] = contract_gaps['existing_closed_status'] is None
+                        contract_gaps['should_process'] = True
+                        contract_gaps['action_reason'] = 'RFQ PDF exists but missing other data - will extract missing data'
+                        logger.info(f"Contract {contract_id}: RFQ PDF exists but missing other data - will process")
+                    else:
+                        # PDF exists and all other data exists - do nothing
+                        contract_gaps['should_process'] = False
+                        contract_gaps['action_reason'] = 'RFQ PDF exists and all data complete - no processing needed'
+                        logger.info(f"Contract {contract_id}: RFQ PDF exists and all data complete - no processing needed")
                     
                 else:
                     # RFQ PDF does NOT exist - check AMSC code status
-                    result = self.supabase.table('rfq_index_extract').select(
-                        'id, national_stock_number, cde_g, closed, solicitation_number'
-                    ).eq('id', contract_id).execute()
-                    
-                    if result.data:
-                        contract_data = result.data[0]
-                        nsn = contract_data.get('national_stock_number')
-                        existing_amsc = contract_data.get('cde_g')
+                    if contract_gaps['existing_amsc'] is None:
+                        # AMSC code is empty - extract AMSC code AND download RFQ PDF
+                        contract_gaps['needs_amsc'] = True
+                        contract_gaps['needs_rfq_pdf'] = True
+                        contract_gaps['needs_closed_status'] = True  # Check while we're there
+                        contract_gaps['should_process'] = True
+                        contract_gaps['action_reason'] = 'RFQ PDF missing AND AMSC code empty - will extract both'
+                        logger.info(f"Contract {contract_id}: RFQ PDF missing AND AMSC code empty - will process")
                         
-                        contract_gaps['nsn'] = nsn
-                        contract_gaps['existing_amsc'] = existing_amsc
-                        
-                        if not existing_amsc:
-                            # AMSC code is empty - extract AMSC code AND download RFQ PDF
-                            contract_gaps['needs_amsc'] = True
-                            contract_gaps['needs_rfq_pdf'] = True
-                            contract_gaps['needs_closed_status'] = True  # Check while we're there
-                            contract_gaps['should_process'] = True
-                            contract_gaps['action_reason'] = 'RFQ PDF missing AND AMSC code empty - will extract both'
-                            logger.info(f"Contract {contract_id}: RFQ PDF missing AND AMSC code empty - will process")
-                            
-                        else:
-                            # AMSC code is filled but RFQ PDF is missing - do nothing
-                            contract_gaps['should_process'] = False
-                            contract_gaps['action_reason'] = 'RFQ PDF missing but AMSC code exists - PDF issue, not touching'
-                            logger.info(f"Contract {contract_id}: RFQ PDF missing but AMSC code exists - not processing")
-                    
                     else:
-                        logger.warning(f"No contract data found for contract ID: {contract_id}")
+                        # AMSC code is filled but RFQ PDF is missing - do nothing
                         contract_gaps['should_process'] = False
-                        contract_gaps['action_reason'] = 'No contract data found'
+                        contract_gaps['action_reason'] = 'RFQ PDF missing but AMSC code exists - PDF issue, not touching'
+                        logger.info(f"Contract {contract_id}: RFQ PDF missing but AMSC code exists - not processing")
                         
             except Exception as e:
                 logger.error(f"Error analyzing contract {contract_id}: {str(e)}")
@@ -182,7 +261,7 @@ class UniversalContractQueueDataPuller:
         
         return gaps
     
-    def create_workflow_for_contracts(self, contract_ids: List[str], 
+    def create_workflow_for_contracts(self, contracts: List[Dict[str, Any]], 
                                     contract_gaps: Dict[str, Dict[str, Any]],
                                     headless: bool = True, timeout: int = 30,
                                     retry_attempts: int = 3, batch_size: int = 50) -> WorkflowOrchestrator:
@@ -190,12 +269,12 @@ class UniversalContractQueueDataPuller:
         Create a workflow based on the data gaps identified for the contracts.
         
         This workflow implements the business logic:
-        - Only process contracts that need both AMSC code AND RFQ PDF
+        - Only process contracts that need data extraction
         - Extract AMSC code and check for closed status while on the NSN page
-        - Download RFQ PDF for the same contracts
+        - Download RFQ PDF for the same contracts when needed
         
         Args:
-            contract_ids: List of contract IDs to process
+            contracts: List of contracts from universal_contract_queue
             contract_gaps: Dictionary of data gaps for each contract
             headless: Whether to run Chrome in headless mode
             timeout: Timeout for page operations
@@ -239,14 +318,14 @@ class UniversalContractQueueDataPuller:
         )
         
         # Step 2: Consent Page Handling (applied to batch of NSNs that need processing)
-        # Only process NSNs that need both AMSC codes AND RFQ PDFs
+        # Only process NSNs that need data extraction
         nsn_urls = []
         nsn_list = []
         nsn_to_contract_map = {}
         
         for contract_id in contracts_to_process:
             gaps = contract_gaps[contract_id]
-            if gaps.get('needs_amsc') and gaps.get('needs_rfq_pdf'):
+            if gaps.get('should_process'):
                 nsn = gaps.get('nsn')
                 if nsn:
                     nsn_list.append(nsn)
@@ -263,7 +342,7 @@ class UniversalContractQueueDataPuller:
                 batch_config={'items': nsn_urls}
             )
             
-            # Step 3: NSN Data Extraction (for contracts that need AMSC codes)
+            # Step 3: NSN Data Extraction (for contracts that need AMSC codes or closed status)
             # This will also check for closed solicitation status while on the page
             nsn_extraction = NsnExtractionOperation()
             nsn_inputs = {
@@ -301,30 +380,28 @@ class UniversalContractQueueDataPuller:
         logger.info("Universal contract queue data pull workflow created successfully")
         return workflow
 
-def create_universal_contract_queue_workflow(contract_ids: List[str], 
-                                           headless: bool = True, timeout: int = 30,
+def create_universal_contract_queue_workflow(headless: bool = True, timeout: int = 30,
                                            retry_attempts: int = 3, batch_size: int = 50,
-                                           force_refresh: bool = False) -> WorkflowOrchestrator:
+                                           force_refresh: bool = False, limit: Optional[int] = None) -> WorkflowOrchestrator:
     """
     Create a workflow for pulling data for contracts in the universal contract queue.
     
+    This workflow INTERNALLY queries the universal_contract_queue table to find
+    contracts that need processing based on predefined conditions.
+    
     Args:
-        contract_ids: List of contract IDs from universal_contract_queue
         headless: Whether to run Chrome in headless mode
         timeout: Timeout for page operations
         retry_attempts: Number of retry attempts for each operation
         batch_size: Size of batches for database uploads
         force_refresh: Force refresh even if data already exists
+        limit: Optional limit on number of contracts to process
         
     Returns:
         Configured WorkflowOrchestrator instance
     """
     
-    # Validate inputs
-    if not contract_ids:
-        raise ValueError("Contract IDs list cannot be empty")
-    
-    logger.info(f"Creating universal contract queue data pull workflow for {len(contract_ids)} contracts")
+    logger.info("Creating universal contract queue data pull workflow")
     
     # Initialize Supabase client for data gap analysis
     try:
@@ -334,14 +411,27 @@ def create_universal_contract_queue_workflow(contract_ids: List[str],
         logger.error(f"Failed to initialize Supabase client: {str(e)}")
         raise
     
-    # Create data puller and analyze gaps
+    # Create data puller and query contracts needing processing
     data_puller = UniversalContractQueueDataPuller(supabase_client)
-    contract_gaps = data_puller.analyze_contract_data_gaps(contract_ids)
+    contracts = data_puller.query_contracts_needing_processing(limit=limit)
+    
+    if not contracts:
+        logger.info("No contracts found in universal_contract_queue that need processing")
+        # Return empty workflow
+        workflow = WorkflowOrchestrator(
+            name="universal_contract_queue_data_pull",
+            description="No contracts need processing"
+        )
+        return workflow
+    
+    # Analyze data gaps for the found contracts
+    contract_gaps = data_puller.analyze_contract_data_gaps(contracts)
     
     # Log analysis results
     logger.info("Contract data gap analysis completed:")
     for contract_id, gaps in contract_gaps.items():
-        logger.info(f"Contract {contract_id}:")
+        contract_data = gaps.get('contract_data', {})
+        logger.info(f"Contract {contract_id} ({contract_data.get('solicitation_number', 'N/A')}):")
         logger.info(f"  - NSN: {gaps.get('nsn', 'N/A')}")
         logger.info(f"  - RFQ PDF exists: {gaps.get('rfq_pdf_exists', False)}")
         logger.info(f"  - AMSC code exists: {gaps.get('existing_amsc', 'N/A')}")
@@ -350,7 +440,7 @@ def create_universal_contract_queue_workflow(contract_ids: List[str],
     
     # Create workflow based on gaps
     workflow = data_puller.create_workflow_for_contracts(
-        contract_ids=contract_ids,
+        contracts=contracts,
         contract_gaps=contract_gaps,
         headless=headless,
         timeout=timeout,
@@ -360,20 +450,22 @@ def create_universal_contract_queue_workflow(contract_ids: List[str],
     
     return workflow
 
-def execute_universal_contract_queue_workflow(contract_ids: List[str], 
-                                            headless: bool = True, timeout: int = 30,
+def execute_universal_contract_queue_workflow(headless: bool = True, timeout: int = 30,
                                             retry_attempts: int = 3, batch_size: int = 50,
-                                            force_refresh: bool = False) -> Dict[str, Any]:
+                                            force_refresh: bool = False, limit: Optional[int] = None) -> Dict[str, Any]:
     """
     Execute the universal contract queue data pull workflow.
     
+    This workflow INTERNALLY determines which contracts need processing by
+    querying the universal_contract_queue table.
+    
     Args:
-        contract_ids: List of contract IDs from universal_contract_queue
         headless: Whether to run Chrome in headless mode
         timeout: Timeout for page operations
         retry_attempts: Number of retry attempts for each operation
         batch_size: Size of batches for database uploads
         force_refresh: Force refresh even if data already exists
+        limit: Optional limit on number of contracts to process
         
     Returns:
         Dictionary containing workflow results and summary
@@ -382,12 +474,12 @@ def execute_universal_contract_queue_workflow(contract_ids: List[str],
     try:
         # Create workflow
         workflow = create_universal_contract_queue_workflow(
-            contract_ids=contract_ids,
             headless=headless,
             timeout=timeout,
             retry_attempts=retry_attempts,
             batch_size=batch_size,
-            force_refresh=force_refresh
+            force_refresh=force_refresh,
+            limit=limit
         )
         
         # Check if workflow has any steps
@@ -396,7 +488,6 @@ def execute_universal_contract_queue_workflow(contract_ids: List[str],
             return {
                 'workflow_name': workflow.name,
                 'status': 'completed',
-                'total_contracts': len(contract_ids),
                 'contracts_processed': 0,
                 'message': 'No contracts need processing based on business logic'
             }
@@ -413,7 +504,6 @@ def execute_universal_contract_queue_workflow(contract_ids: List[str],
         summary = {
             'workflow_name': workflow.name,
             'status': status.value,
-            'total_contracts': len(contract_ids),
             'steps_executed': len(results),
             'results': results,
             'context': context
@@ -453,8 +543,7 @@ def execute_universal_contract_queue_workflow(contract_ids: List[str],
         return {
             'workflow_name': 'universal_contract_queue_data_pull',
             'status': 'failed',
-            'error': error_msg,
-            'total_contracts': len(contract_ids) if 'contract_ids' in locals() else 0
+            'error': error_msg
         }
     
     finally:
@@ -469,29 +558,29 @@ def execute_universal_contract_queue_workflow(contract_ids: List[str],
 def main():
     """Main entry point for command line usage."""
     parser = argparse.ArgumentParser(description="Pull data for contracts in universal contract queue")
-    parser.add_argument("--contract-ids", nargs="+", required=True, help="List of contract IDs from universal_contract_queue")
     parser.add_argument("--force-refresh", action="store_true", help="Force refresh even if data already exists")
     parser.add_argument("--headless", action="store_true", default=True, help="Run Chrome in headless mode (default: True)")
     parser.add_argument("--timeout", type=int, default=30, help="Timeout for page operations in seconds (default: 30)")
     parser.add_argument("--retry-attempts", type=int, default=3, help="Number of retry attempts for each operation (default: 3)")
     parser.add_argument("--batch-size", type=int, default=50, help="Size of batches for database uploads (default: 50)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
+    parser.add_argument("--limit", type=int, help="Limit number of contracts to process")
     
     args = parser.parse_args()
     
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
-    logger.info(f"Processing {len(args.contract_ids)} contracts from universal contract queue")
+    logger.info("Processing contracts from universal contract queue (auto-discovered)")
     
     # Execute workflow
     result = execute_universal_contract_queue_workflow(
-        contract_ids=args.contract_ids,
         headless=args.headless,
         timeout=args.timeout,
         retry_attempts=args.retry_attempts,
         batch_size=args.batch_size,
-        force_refresh=args.force_refresh
+        force_refresh=args.force_refresh,
+        limit=args.limit
     )
     
     # Output results
