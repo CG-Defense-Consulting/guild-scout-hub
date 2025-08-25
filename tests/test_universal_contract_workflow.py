@@ -9,6 +9,8 @@ with 3 sample NSNs to verify functionality using real clients.
 import pytest
 import sys
 import os
+import subprocess
+import platform
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -30,14 +32,62 @@ from etl.core.operations import (
 class TestUniversalContractWorkflow:
     """Test class for the universal contract workflow."""
     
+    @classmethod
+    def setup_class(cls):
+        """Setup method that runs once before all tests in the class."""
+        print("\n🚀 Setting up Universal Contract Workflow tests...")
+        
+        # Try to auto-upgrade chromedriver at the start
+        try:
+            from webdriver_manager.chrome import ChromeDriverManager
+            print("🔄 Auto-upgrading chromedriver for all tests...")
+            chromedriver_path = ChromeDriverManager().install()
+            print(f"✅ Chromedriver ready: {chromedriver_path}")
+        except ImportError:
+            print("⚠️ webdriver-manager not available, chromedriver auto-upgrade skipped")
+        except Exception as e:
+            print(f"⚠️ Chromedriver auto-upgrade failed: {str(e)}")
+        
+        print("✅ Test setup complete\n")
+    
     @pytest.fixture(scope="class")
     def sample_nsns(self):
         """Sample NSNs for testing."""
         return [
-            "5331-00-618-5361",  # Sample NSN from the HTML you showed earlier
-            "8455-01-688-7455",  # Another sample NSN
-            "5310-00-382-7593"   # Third sample NSN
+            "5331006185361",  # Sample NSN from the HTML you showed earlier
+            "8455016887455",  # Another sample NSN
+            "5310003827593"   # Third sample NSN
         ]
+    
+    @pytest.fixture(scope="class")
+    def auto_upgrade_chromedriver(self):
+        """Auto-upgrade chromedriver to match the installed Chrome version."""
+        try:
+            # Try to import webdriver_manager for automatic chromedriver management
+            from webdriver_manager.chrome import ChromeDriverManager
+            from selenium import webdriver
+            from selenium.webdriver.chrome.service import Service
+            
+            print("🔄 Auto-upgrading chromedriver...")
+            
+            # Get the latest chromedriver that matches the installed Chrome version
+            chromedriver_path = ChromeDriverManager().install()
+            print(f"✅ Chromedriver upgraded to: {chromedriver_path}")
+            
+            # Test that the chromedriver works
+            service = Service(chromedriver_path)
+            test_driver = webdriver.Chrome(service=service)
+            test_driver.quit()
+            print("✅ Chromedriver test successful")
+            
+            return chromedriver_path
+            
+        except ImportError:
+            print("⚠️ webdriver_manager not available, skipping chromedriver auto-upgrade")
+            return None
+        except Exception as e:
+            print(f"⚠️ Chromedriver auto-upgrade failed: {str(e)}")
+            return None
     
     @pytest.fixture(scope="class")
     def real_supabase_client(self):
@@ -58,8 +108,8 @@ class TestUniversalContractWorkflow:
         """Test that the workflow can be initialized with real client."""
         workflow = UniversalContractQueueDataPuller(real_supabase_client)
         assert workflow is not None
-        assert hasattr(workflow, 'supabase_client')
-        assert workflow.supabase_client == real_supabase_client
+        assert hasattr(workflow, 'supabase')
+        assert workflow.supabase == real_supabase_client
     
     def test_contract_query_methods(self, real_supabase_client):
         """Test that contract query methods exist and are callable."""
@@ -94,8 +144,12 @@ class TestUniversalContractWorkflow:
             assert 'should_process' in gaps
             assert 'action_reason' in gaps
     
-    def test_chrome_setup_operation(self):
-        """Test Chrome setup operation."""
+    def test_chrome_setup_operation(self, auto_upgrade_chromedriver):
+        """Test Chrome setup operation with auto-upgraded chromedriver."""
+        # Ensure chromedriver is up to date
+        if auto_upgrade_chromedriver:
+            print(f"🔧 Using upgraded chromedriver: {auto_upgrade_chromedriver}")
+        
         chrome_setup = ChromeSetupOperation(headless=True)
         assert chrome_setup is not None
         assert chrome_setup.name == "chrome_setup"
@@ -129,25 +183,40 @@ class TestUniversalContractWorkflow:
         assert amsc_extraction.name == "amsc_extraction"
         assert amsc_extraction.can_apply_to_batch() is True
     
+    def test_chromedriver_auto_upgrade(self, auto_upgrade_chromedriver):
+        """Test that chromedriver auto-upgrade works correctly."""
+        if auto_upgrade_chromedriver:
+            # Verify the chromedriver path exists and is executable
+            chromedriver_path = Path(auto_upgrade_chromedriver)
+            assert chromedriver_path.exists(), f"Chromedriver not found at {chromedriver_path}"
+            assert chromedriver_path.is_file(), f"Chromedriver path is not a file: {chromedriver_path}"
+            
+            # On Unix-like systems, check if it's executable
+            if platform.system() in ['Linux', 'Darwin']:
+                assert os.access(chromedriver_path, os.X_OK), f"Chromedriver not executable: {chromedriver_path}"
+            
+            print(f"✅ Chromedriver auto-upgrade test passed: {chromedriver_path}")
+        else:
+            pytest.skip("Chromedriver auto-upgrade not available")
+    
     def test_sample_nsn_processing(self, sample_nsns):
         """Test processing of sample NSNs."""
         for nsn in sample_nsns:
             # Test that NSNs have valid format
             assert isinstance(nsn, str)
             assert len(nsn) > 0
-            assert '-' in nsn  # NSNs should have dashes
+            assert len(nsn) == 13  # NSNs should be 13 digits
             
-            # Test that NSNs follow the expected pattern (4-2-2-4)
-            parts = nsn.split('-')
-            assert len(parts) == 4
-            assert len(parts[0]) == 4  # First part should be 4 digits
-            assert len(parts[1]) == 2  # Second part should be 2 digits
-            assert len(parts[2]) == 2  # Third part should be 2 digits
-            assert len(parts[3]) == 4  # Fourth part should be 4 digits
+            # Test that NSNs contain only digits
+            assert nsn.isdigit()
     
     @pytest.mark.integration
-    def test_workflow_execution_without_supabase_upload(self, real_supabase_client):
+    def test_workflow_execution_without_supabase_upload(self, real_supabase_client, auto_upgrade_chromedriver):
         """Test workflow execution up to but excluding Supabase upload."""
+        # Ensure chromedriver is up to date before running workflow
+        if auto_upgrade_chromedriver:
+            print(f"🔧 Workflow test using upgraded chromedriver: {auto_upgrade_chromedriver}")
+        
         workflow = UniversalContractQueueDataPuller(real_supabase_client)
         
         # Mock the SupabaseUploadOperation to prevent actual database operations
@@ -209,7 +278,8 @@ class TestUniversalContractWorkflow:
             if nsn:
                 # Test that NSN format is valid
                 assert isinstance(nsn, str)
-                assert '-' in nsn
+                assert len(nsn) == 13  # NSNs should be 13 digits
+                assert nsn.isdigit()  # NSNs should contain only digits
                 
                 # Test that we have the required fields
                 assert 'solicitation_number' in contract_data

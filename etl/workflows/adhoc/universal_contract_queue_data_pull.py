@@ -415,7 +415,7 @@ class UniversalContractQueueDataPuller:
             
             if upload_data:
                 upload_result = supabase_upload.execute(
-                    inputs={'data': upload_data, 'batch_size': batch_size, 'table_name': 'rfq_index_extract'},
+                    inputs={'results': upload_data, 'batch_size': batch_size, 'table_name': 'rfq_index_extract'},
                     context={}
                 )
                 
