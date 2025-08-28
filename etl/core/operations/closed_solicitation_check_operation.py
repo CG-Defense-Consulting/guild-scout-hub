@@ -92,14 +92,41 @@ class ClosedSolicitationCheckOperation(BaseOperation):
             True if closed, False if open, None if unknown
         """
         try:
-            # Look for the specific closed solicitation pattern
-            closed_pattern = f"No record of National Stock Number: {nsn} with open DIBBS Request For Quotes (RFQ) solicitations."
+            # Clean the HTML by removing HTML entities and tags for more reliable text matching
+            cleaned_html = html_content
             
-            if closed_pattern in html_content:
+            # Replace common HTML entities
+            cleaned_html = cleaned_html.replace('&nbsp;', ' ')
+            cleaned_html = cleaned_html.replace('&amp;', '&')
+            cleaned_html = cleaned_html.replace('&lt;', '<')
+            cleaned_html = cleaned_html.replace('&gt;', '>')
+            cleaned_html = cleaned_html.replace('&quot;', '"')
+            cleaned_html = cleaned_html.replace('&#39;', "'")
+            
+            # Remove all HTML tags
+            import re
+            cleaned_html = re.sub(r'<[^>]+>', '', cleaned_html)
+            
+            # Clean up extra whitespace (normalize multiple spaces to single spaces)
+            cleaned_html = re.sub(r'\s+', ' ', cleaned_html).strip()
+            
+            logger.debug(f"🔍 CLOSED CHECK: Cleaned HTML for NSN {nsn} (length: {len(cleaned_html)})")
+            
+            # Method 1: Look for the specific closed solicitation pattern with flexible whitespace
+            # Use regex to handle variable whitespace around the NSN
+            closed_pattern = rf"No record of National Stock Number:\s*{nsn}\s+with open DIBBS Request For Quotes \(RFQ\) solicitations\."
+            
+            if re.search(closed_pattern, cleaned_html, re.IGNORECASE):
                 logger.info(f"🔍 CLOSED CHECK: NSN {nsn}: Closed solicitation detected via specific pattern")
                 return True
             
-            # Look for other indicators of closed solicitations
+            # Method 2: Look for the pattern with the NSN in the middle (more flexible)
+            nsn_pattern = rf"No record of National Stock Number:\s*{nsn}\s+with open DIBBS"
+            if re.search(nsn_pattern, cleaned_html, re.IGNORECASE):
+                logger.info(f"🔍 CLOSED CHECK: NSN {nsn}: Closed solicitation detected via NSN pattern")
+                return True
+            
+            # Method 3: Look for other indicators of closed solicitations
             closed_indicators = [
                 "no open solicitations",
                 "no open RFQ solicitations", 
@@ -109,12 +136,26 @@ class ClosedSolicitationCheckOperation(BaseOperation):
             ]
             
             for indicator in closed_indicators:
-                if indicator.lower() in html_content.lower():
+                if indicator.lower() in cleaned_html.lower():
                     logger.info(f"🔍 CLOSED CHECK: NSN {nsn}: Closed solicitation detected via indicator: {indicator}")
                     return True
             
+            # Method 4: Look for the key phrase without the specific NSN (fallback)
+            if "No record of National Stock Number" in cleaned_html and "with open DIBBS Request For Quotes (RFQ) solicitations" in cleaned_html:
+                logger.info(f"🔍 CLOSED CHECK: NSN {nsn}: Closed solicitation detected via fallback pattern")
+                return True
+            
             # If we can't determine, return None (unknown)
             logger.info(f"🔍 CLOSED CHECK: NSN {nsn}: Solicitation status could not be determined")
+            
+            # Log a sample of the cleaned HTML for debugging
+            no_record_index = cleaned_html.find("No record of National Stock Number")
+            if no_record_index != -1:
+                start = max(0, no_record_index - 100)
+                end = min(len(cleaned_html), no_record_index + 200)
+                context = cleaned_html[start:end]
+                logger.debug(f"🔍 CLOSED CHECK: Context around 'No record of National Stock Number' in cleaned HTML: {context}")
+            
             return None
             
         except Exception as e:

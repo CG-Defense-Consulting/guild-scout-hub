@@ -1,114 +1,176 @@
-# Tests
+# Testing
 
-This directory contains pytest modules for testing the ETL workflow functionality using real clients and data.
+This directory contains tests for the ETL system to ensure all components work correctly.
 
-## Setup
+## Test Files
 
-1. Install test dependencies:
-```bash
-cd tests
-pip install -r requirements.txt
-```
+### `test_workflow_integration.py`
+Comprehensive integration tests for all workflows (scheduled and adhoc) that verify:
+- Workflow creation and configuration
+- Operation dependencies and ordering
+- Data flow through workflow steps
+- Error handling and validation
+- Mocked operations (no actual database uploads)
 
-2. Ensure you have the required environment variables set for Supabase:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_PUBLISHABLE_KEY`
-   - `SUPABASE_SERVICE_ROLE_KEY`
+### `test_universal_contract_workflow.py`
+Tests for the universal contract queue workflow.
 
-3. Ensure you're in the project root directory when running tests.
+### `conftest.py`
+Pytest configuration and shared fixtures.
 
 ## Running Tests
 
-### Run all tests:
+### Prerequisites
+- Python 3.8+
+- pytest (will be installed automatically if missing)
+- All ETL dependencies installed
+
+### Quick Start
 ```bash
-pytest tests/ -v
+# From the project root directory
+cd tests
+python run_workflow_tests.py
 ```
 
-### Run only unit tests (skip integration tests):
+### Using Pytest Directly
 ```bash
-pytest tests/ -v -m "not integration"
+# From the project root directory
+pytest tests/test_workflow_integration.py -v
+
+# Run a specific test
+pytest tests/test_workflow_integration.py::TestWorkflowIntegration::test_dibbs_rfq_index_workflow_creation -v
+
+# Run with coverage
+pytest tests/test_workflow_integration.py --cov=etl --cov-report=html
 ```
 
-### Run only integration tests:
+### Test Runner Script
+The `run_workflow_tests.py` script provides a convenient way to run tests:
+
 ```bash
-pytest tests/ -v -m "integration"
+# Run all tests
+python tests/run_workflow_tests.py
+
+# Run a specific test
+python tests/run_workflow_tests.py TestWorkflowIntegration::test_date_formatting_logic
 ```
 
-### Run specific test file:
+## What the Tests Cover
+
+### Workflow Integration Tests
+1. **Workflow Creation**: Verifies workflows can be created with correct step configuration
+2. **Date Handling**: Tests date formatting for archive downloads (YYYY-MM-DD → in{yy}{mm}{dd})
+3. **Operation Testing**: Tests individual operations with mocked dependencies
+4. **Dependency Validation**: Ensures workflow steps have correct dependencies
+5. **Error Handling**: Tests error scenarios and validation
+6. **Batch Processing**: Verifies operations support batch processing
+7. **Environment Variables**: Tests environment variable handling
+8. **Metadata Validation**: Ensures operations have proper metadata
+9. **Step Ordering**: Verifies logical workflow step ordering
+
+### Tested Workflows
+- **Scheduled**: DIBBS RFQ Index Pull (daily at 2:30 AM)
+- **Adhoc**: 
+  - Extract NSN AMSC Code
+  - Pull Single RFQ PDF
+  - Universal Contract Queue Data Pull
+
+### Tested Operations
+- Chrome Setup
+- Archive Downloads Navigation
+- Consent Page Handling
+- DIBBS Text File Download
+- Text File Parsing (inline)
+- Supabase Upload (mocked)
+
+## Test Environment
+
+### Mocked Dependencies
+- **Chrome Driver**: Mocked to prevent actual browser operations
+- **Supabase Client**: Mocked to prevent actual database operations
+- **File System**: Uses temporary directories for testing
+
+### Environment Variables
+Tests set up a safe testing environment:
+- `TESTING=true`
+- `DIBBS_DOWNLOAD_DIR=./test_downloads`
+- `LOG_FILE=./test_logs/test.log`
+- `VITE_SUPABASE_URL=https://test.supabase.co`
+- `SUPABASE_SERVICE_ROLE_KEY=test_key`
+
+### Temporary Files
+Tests create temporary directories and files that are automatically cleaned up:
+- Test downloads directory
+- Test logs directory
+- Sample data files
+
+## Test Results
+
+### Success Criteria
+- All workflow steps can be created and configured
+- Date formatting produces correct URL patterns
+- Operations handle errors gracefully
+- Dependencies are correctly configured
+- Mocked operations return expected results
+
+### What Tests Don't Do
+- **No Real Browser Operations**: Chrome operations are mocked
+- **No Database Uploads**: Supabase operations are mocked
+- **No External API Calls**: All external dependencies are mocked
+- **No File Downloads**: File operations use temporary test data
+
+## Troubleshooting
+
+### Common Issues
+1. **Import Errors**: Ensure you're running from the project root
+2. **Missing Dependencies**: Install ETL requirements first
+3. **Path Issues**: Check that the ETL directory structure is correct
+
+### Debug Mode
+Run tests with verbose output:
 ```bash
-pytest tests/test_universal_contract_workflow.py -v
+pytest tests/test_workflow_integration.py -v -s
 ```
 
-### Run with coverage:
+### Running Individual Tests
+To debug specific functionality:
 ```bash
-pytest tests/ --cov=etl --cov-report=html
+# Test only date formatting
+pytest tests/test_workflow_integration.py::TestWorkflowIntegration::test_date_formatting_logic -v
+
+# Test only workflow creation
+pytest tests/test_workflow_integration.py::TestWorkflowIntegration::test_dibbs_rfq_index_workflow_creation -v
 ```
 
-### Run specific test method:
-```bash
-pytest tests/test_universal_contract_workflow.py::TestUniversalContractWorkflow::test_workflow_initialization -v
+## Adding New Tests
+
+### For New Workflows
+1. Import the workflow module
+2. Test workflow creation and configuration
+3. Test step dependencies and ordering
+4. Mock any external dependencies
+
+### For New Operations
+1. Test operation instantiation
+2. Test input validation
+3. Test execution with mocked inputs
+4. Test error handling
+
+### Test Structure
+```python
+def test_new_feature(self):
+    """Test description."""
+    # Arrange
+    # Act
+    # Assert
 ```
 
-## Test Structure
+## Continuous Integration
 
-- `conftest.py` - Pytest configuration and shared fixtures
-- `test_universal_contract_workflow.py` - Tests for the universal contract workflow
-- `requirements.txt` - Test dependencies
+These tests are designed to run in CI/CD pipelines:
+- No external dependencies
+- Fast execution
+- Comprehensive coverage
+- Clear pass/fail criteria
 
-## Test Categories
-
-### Unit Tests
-- **`test_workflow_initialization`** - Tests workflow object creation with real client
-- **`test_contract_query_methods`** - Verifies required methods exist and are callable
-- **`test_contract_analysis`** - Tests contract data gap analysis with real data
-- **`test_chrome_setup_operation`** - Tests Chrome setup operation initialization
-- **`test_consent_page_operation`** - Tests consent page operation initialization
-- **`test_nsn_navigation_operation`** - Tests NSN navigation operation initialization
-- **`test_closed_solicitation_check_operation`** - Tests closed status check operation
-- **`test_amsc_extraction_operation`** - Tests AMSC extraction operation
-- **`test_sample_nsn_processing`** - Tests NSN format validation
-
-### Integration Tests
-- **`test_workflow_execution_without_supabase_upload`** - Tests full workflow execution (excluding database operations)
-- **`test_individual_operations_with_real_data`** - Tests operations with real data from Supabase
-
-## Sample NSNs Used in Tests
-
-The tests use 3 sample NSNs:
-1. `5331-00-618-5361` - Sample NSN from the HTML example
-2. `8455-01-688-7455` - Another sample NSN
-3. `5310-00-382-7593` - Third sample NSN
-
-## What Gets Tested
-
-### ✅ Real Client Testing
-- Uses actual Supabase client connection
-- Queries real database for contract data
-- Tests actual data analysis logic
-
-### ✅ Full Workflow Execution
-- Chrome setup and driver initialization
-- Consent page handling
-- NSN page navigation
-- Closed solicitation status checking
-- AMSC code extraction
-- **Mocked Supabase upload** (prevents actual database changes)
-
-### ✅ Operation Validation
-- All individual operations are tested for proper initialization
-- Batch processing capabilities are verified
-- Input/output validation is tested
-
-## Environment Requirements
-
-- **Supabase Connection**: Must have valid environment variables
-- **Chrome/ChromeDriver**: Required for workflow execution tests
-- **Network Access**: Required for DIBBS website access
-
-## Notes
-
-- Tests use real Supabase client for authentic data testing
-- Full workflow execution is tested but database operations are mocked
-- Integration tests are marked with `@pytest.mark.integration`
-- Tests will skip if Supabase client is not available
-- Chrome setup is tested but actual browser automation requires proper environment
+The tests ensure that workflow changes don't break existing functionality and that new features work as expected.
