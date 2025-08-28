@@ -219,6 +219,14 @@ def execute_universal_contract_queue_workflow(
         
         logger.info(f"✅ Found {len(contracts)} contracts to process")
         
+        # Debug: Log the structure of the first contract
+        if contracts:
+            first_contract = contracts[0]
+            logger.info(f"Sample contract structure: {first_contract}")
+            logger.info(f"Contract ID: {first_contract.get('id')}")
+            logger.info(f"Solicitation Number: {first_contract.get('solicitation_number')}")
+            logger.info(f"National Stock Number: {first_contract.get('national_stock_number')}")
+        
         # Step 3: Setup Chrome browser
         logger.info("Step 3: Setting up Chrome browser")
         chrome_op = ChromeSetupOperation()
@@ -268,29 +276,63 @@ def execute_universal_contract_queue_workflow(
             upload_data = []
             for result in results:
                 if result['success'] and not result.get('skipped', False):
-                    upload_data.append({
-                        'contract_id': result['contract_id'],
-                        'nsn': result['nsn'],
-                        'amsc_code': result['amsc_code'],
-                        'is_closed': result['is_closed'],
-                        'processed_at': 'now()'
-                    })
+                    # Get the solicitation number from the original contract data
+                    contract_id = result['contract_id']
+                    contract_data = next((c for c in contracts if c['id'] == contract_id), None)
+                    
+                    if contract_data and contract_data.get('solicitation_number'):
+                        upload_data.append({
+                            'solicitation_number': contract_data['solicitation_number'],
+                            'national_stock_number': result['nsn'],
+                            'cde_g': result['amsc_code'],  # AMSC code goes in cde_g field
+                            'closed': result['is_closed'],  # Use 'closed' field name
+                            'processed_at': 'now()'
+                        })
+                        logger.info(f"Prepared upload data for SN: {contract_data['solicitation_number']}, NSN: {result['nsn']}")
+                    else:
+                        logger.warning(f"Missing solicitation number for contract {contract_id}, skipping upload")
             
             if upload_data:
-                upload_result = upload_op._execute({
-                    'results': upload_data,
-                    'table_name': 'rfq_index_extract',
-                    'operation_type': 'upsert',
-                    'upsert_strategy': 'merge',
-                    'conflict_resolution': 'update_existing',
-                    'key_fields': ['nsn'],
-                    'batch_size': 50
-                }, {})
+                logger.info(f"Attempting to upload {len(upload_data)} records to database...")
                 
-                if upload_result.success:
-                    logger.info(f"✅ Database upload completed: {len(upload_data)} records")
-                else:
-                    logger.error(f"❌ Database upload failed: {upload_result.error}")
+                # Log the first few records for debugging
+                for i, record in enumerate(upload_data[:3]):
+                    logger.info(f"Sample record {i+1}: {record}")
+                
+                try:
+                    upload_result = upload_op._execute({
+                        'results': upload_data,
+                        'table_name': 'rfq_index_extract',
+                        'operation_type': 'upsert',
+                        'upsert_strategy': 'merge',
+                        'conflict_resolution': 'update_existing',
+                        'key_fields': ['solicitation_number', 'national_stock_number'],  # Use both fields as key
+                        'batch_size': 50
+                    }, {})
+                    
+                    logger.info(f"Upload operation completed. Success: {upload_result.success}")
+                    
+                    if upload_result.success:
+                        logger.info(f"✅ Database upload completed: {len(upload_data)} records")
+                        if hasattr(upload_result, 'data') and upload_result.data:
+                            logger.info(f"Upload result data: {upload_result.data}")
+                    else:
+                        logger.error(f"❌ Database upload failed: {upload_result.error}")
+                        # Log more details about the failure
+                        if hasattr(upload_result, 'data') and upload_result.data:
+                            logger.error(f"Upload result data: {upload_result.data}")
+                        if hasattr(upload_result, 'metadata') and upload_result.metadata:
+                            logger.error(f"Upload result metadata: {upload_result.metadata}")
+                            
+                except Exception as upload_error:
+                    logger.error(f"❌ Exception during upload operation: {str(upload_error)}")
+                    import traceback
+                    logger.error(f"Upload error traceback: {traceback.format_exc()}")
+                    # Continue with the workflow even if upload fails
+                    upload_result = type('MockResult', (), {
+                        'success': False,
+                        'error': str(upload_error)
+                    })()
             else:
                 logger.info("ℹ️ No data to upload")
         

@@ -1,14 +1,20 @@
+#!/usr/bin/env python3
 """
 DIBBS Text File Download Operation
 
 This operation handles downloading text files from the DIBBS website.
-It's designed to be generic and will be filled in with specific DIBBS navigation logic later.
+It works with the archive downloads page where the current URL is a direct download link.
 """
 
 import logging
 import os
+import time
 from datetime import datetime
 from typing import Any, Dict, Optional
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
 from .base_operation import BaseOperation, OperationResult, OperationStatus
 
@@ -19,163 +25,202 @@ class DibbsTextFileDownloadOperation(BaseOperation):
     Operation to download text files from the DIBBS website.
     
     This operation:
-    1. Navigates to the DIBBS website
-    2. Locates the target text file
-    3. Downloads the file to the specified directory
+    1. Assumes the Chrome driver is already on the archive downloads page
+    2. Triggers the download of the text file
+    3. Waits for the download to complete
     4. Returns the file path for further processing
     """
     
     def __init__(self):
         super().__init__(
             name="dibbs_text_file_download",
-            description="Download text file from DIBBS website"
+            description="Download text file from DIBBS archive downloads page"
         )
-        self.set_required_inputs(["dibbs_base_url", "download_dir"])
-        self.set_optional_inputs(["headless", "timeout", "file_type", "target_filename"])
+        self.set_required_inputs([])
+        self.set_optional_inputs(['timeout', 'retry_attempts', 'download_dir'])
     
-    def execute(self, **kwargs) -> OperationResult:
+    def _execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> OperationResult:
         """
         Execute the DIBBS text file download operation.
         
         Args:
-            dibbs_base_url: Base URL for DIBBS website
-            download_dir: Directory to save downloaded files
-            headless: Whether to run Chrome in headless mode (default: True)
-            timeout: Timeout for page operations in seconds (default: 30)
-            file_type: Type of file to download (e.g., 'rfq_index', 'solicitation_list')
-            target_filename: Specific filename to look for (optional)
+            inputs: Operation inputs (not used for this operation)
+            context: Shared context containing the Chrome driver
             
         Returns:
             OperationResult with download file path or error
         """
         try:
-            logger.info("Starting DIBBS text file download operation")
+            logger.info("🔍 TEXT FILE DOWNLOAD: Starting DIBBS text file download operation")
             
-            # Extract input parameters
-            dibbs_base_url = kwargs.get("dibbs_base_url")
-            download_dir = kwargs.get("download_dir", "./downloads")
-            headless = kwargs.get("headless", True)
-            timeout = kwargs.get("timeout", 30)
-            file_type = kwargs.get("file_type", "rfq_index")
-            target_filename = kwargs.get("target_filename")
+            # Get Chrome driver from context
+            driver = context.get('chrome_driver')
+            if not driver:
+                return OperationResult(
+                    success=False,
+                    status=OperationStatus.FAILED,
+                    error="Missing required context: 'chrome_driver'"
+                )
             
-            logger.info(f"Target: {file_type} file from {dibbs_base_url}")
-            logger.info(f"Download directory: {download_dir}")
-            logger.info(f"Headless mode: {headless}")
-            logger.info(f"Timeout: {timeout} seconds")
+            # Get optional parameters
+            timeout = inputs.get('timeout', 30)
+            retry_attempts = inputs.get('retry_attempts', 3)
+            download_dir = inputs.get('download_dir', os.getenv('DIBBS_DOWNLOAD_DIR', './downloads'))
+            
+            logger.info(f"🔍 TEXT FILE DOWNLOAD: Using download directory: {download_dir}")
+            logger.info(f"🔍 TEXT FILE DOWNLOAD: Timeout: {timeout}s")
+            logger.info(f"🔍 TEXT FILE DOWNLOAD: Retry attempts: {retry_attempts}")
             
             # Ensure download directory exists
             os.makedirs(download_dir, exist_ok=True)
             
-            # TODO: Implement actual DIBBS navigation and download logic
-            # This is a placeholder that will be implemented later
+            # Get current URL to understand what we're downloading
+            current_url = driver.current_url
+            logger.info(f"🔍 TEXT FILE DOWNLOAD: Current URL: {current_url}")
             
-            # For now, create a dummy file to simulate the download
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            
-            if target_filename:
-                # Use the specified filename with timestamp
-                filename = f"{target_filename}_{timestamp}.txt"
+            # Extract filename from URL if possible
+            if '.txt' in current_url:
+                # URL format: https://dibbs2.bsm.dla.mil/Downloads/RFQ/Archive/in{yy}{mm}{dd}.txt
+                filename = current_url.split('/')[-1]
+                logger.info(f"🔍 TEXT FILE DOWNLOAD: Extracted filename from URL: {filename}")
             else:
-                # Generate a filename based on file type
-                filename = f"dibbs_{file_type}_{timestamp}.txt"
+                # Generate filename based on current date
+                current_date = datetime.now().strftime('%Y%m%d')
+                filename = f"dibbs_rfq_index_{current_date}.txt"
+                logger.info(f"🔍 TEXT FILE DOWNLOAD: Generated filename: {filename}")
             
-            file_path = os.path.join(download_dir, filename)
+            # Set up Chrome download preferences
+            driver.execute_script("""
+                var downloadBehavior = {
+                    'default_directory': arguments[0],
+                    'prompt_for_download': false,
+                    'directory_upgrade': true
+                };
+                chrome.downloads.onChanged.addListener(function(downloadDelta) {
+                    if (downloadDelta.state && downloadDelta.state.current === 'complete') {
+                        console.log('Download completed:', downloadDelta.id);
+                    }
+                });
+            """, download_dir)
             
-            # Create a dummy file with sample data
-            with open(file_path, 'w') as f:
-                f.write(f"# DIBBS {file_type.replace('_', ' ').title()} - Sample Data\n")
-                f.write(f"# Generated at: {datetime.now().isoformat()}\n")
-                f.write(f"# Source: {dibbs_base_url}\n")
-                f.write("# TODO: Replace with actual DIBBS data\n")
-                f.write("# This is a placeholder file for development/testing\n")
-                f.write("\n")
+            # The current page should be a direct download link
+            # For text files, we can either:
+            # 1. Trigger download by clicking/refreshing
+            # 2. Get the content directly if it's a text response
+            
+            # Try to get the content directly first
+            try:
+                logger.info("🔍 TEXT FILE DOWNLOAD: Attempting to get text content directly...")
                 
-                # Add sample data based on file type
-                if file_type == "rfq_index":
-                    f.write("NSN,AMSC,Status,Description,Solicitation_Number,Date_Posted\n")
-                    f.write("5331006185361,1,Open,Sample RFQ 1,RFQ-2024-001,2024-01-15\n")
-                    f.write("8455016478866,2,Closed,Sample RFQ 2,RFQ-2024-002,2024-01-16\n")
-                    f.write("5331006185362,3,Open,Sample RFQ 3,RFQ-2024-003,2024-01-17\n")
-                elif file_type == "solicitation_list":
-                    f.write("Solicitation_ID,Title,Status,Posted_Date,Closing_Date,Department\n")
-                    f.write("SOL-2024-001,Equipment Supply Contract,Open,2024-01-15,2024-02-15,DLA\n")
-                    f.write("SOL-2024-002,Maintenance Services,Closed,2024-01-10,2024-02-10,DLA\n")
+                # Wait for page to load completely
+                wait = WebDriverWait(driver, timeout)
+                wait.until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
+                
+                # Get the page source/content
+                page_content = driver.page_source
+                
+                # Check if this is actually text content or an HTML page
+                if page_content.startswith('<!DOCTYPE html') or '<html' in page_content:
+                    logger.info("🔍 TEXT FILE DOWNLOAD: Page contains HTML, treating as download page")
+                    
+                    # This is an HTML page, so we need to trigger the download
+                    # Try refreshing the page to trigger download
+                    logger.info("🔍 TEXT FILE DOWNLOAD: Refreshing page to trigger download...")
+                    driver.refresh()
+                    time.sleep(2)  # Wait for refresh
+                    
+                    # Check if we now have text content
+                    page_content = driver.page_source
+                    if not (page_content.startswith('<!DOCTYPE html') or '<html' in page_content):
+                        logger.info("🔍 TEXT FILE DOWNLOAD: Successfully got text content after refresh")
+                    else:
+                        logger.info("🔍 TEXT FILE DOWNLOAD: Still HTML content, will try alternative approach")
+                        
+                        # Alternative: try to get the text content from the page
+                        try:
+                            # Look for text content in the page
+                            text_elements = driver.find_elements(By.TAG_NAME, 'pre')
+                            if text_elements:
+                                page_content = text_elements[0].text
+                                logger.info("🔍 TEXT FILE DOWNLOAD: Found text content in <pre> element")
+                            else:
+                                # Try to get text from body
+                                body_element = driver.find_element(By.TAG_NAME, 'body')
+                                page_content = body_element.text
+                                logger.info("🔍 TEXT FILE DOWNLOAD: Extracted text content from body")
+                        except Exception as e:
+                            logger.warning(f"⚠️ TEXT FILE DOWNLOAD: Could not extract text content: {e}")
+                            page_content = ""
                 else:
-                    f.write("Field1,Field2,Field3,Field4\n")
-                    f.write("Value1,Value2,Value3,Value4\n")
-            
-            logger.info(f"Successfully created dummy file: {file_path}")
-            
-            # Return success result with file information
-            return OperationResult(
-                success=True,
-                status=OperationStatus.COMPLETED,
-                data={
-                    "file_path": file_path,
-                    "filename": filename,
-                    "file_size": os.path.getsize(file_path),
-                    "file_type": file_type,
-                    "source_url": dibbs_base_url
-                },
-                metadata={
-                    "operation": self.name,
-                    "timestamp": timestamp,
-                    "download_dir": download_dir,
-                    "headless": headless,
-                    "timeout": timeout
-                }
-            )
-            
+                    logger.info("🔍 TEXT FILE DOWNLOAD: Page contains direct text content")
+                
+                # If we have text content, save it to file
+                if page_content and not page_content.startswith('<!DOCTYPE html'):
+                    file_path = os.path.join(download_dir, filename)
+                    
+                    # Write the content to file
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(page_content)
+                    
+                    logger.info(f"🔍 TEXT FILE DOWNLOAD: Successfully saved text content to: {file_path}")
+                    logger.info(f"🔍 TEXT FILE DOWNLOAD: File size: {len(page_content)} characters")
+                    
+                    # Verify file was created
+                    if os.path.exists(file_path):
+                        file_size = os.path.getsize(file_path)
+                        logger.info(f"🔍 TEXT FILE DOWNLOAD: File verified, size: {file_size} bytes")
+                        
+                        return OperationResult(
+                            success=True,
+                            status=OperationStatus.COMPLETED,
+                            data={
+                                'file_path': file_path,
+                                'file_size': file_size,
+                                'content_length': len(page_content),
+                                'filename': filename
+                            },
+                            metadata={
+                                'download_method': 'direct_content',
+                                'source_url': current_url
+                            }
+                        )
+                    else:
+                        raise Exception("File was not created successfully")
+                        
+                else:
+                    logger.warning("⚠️ TEXT FILE DOWNLOAD: No text content found, trying download approach")
+                    
+                    # Fall back to download approach
+                    # This would require setting up Chrome download preferences properly
+                    # For now, we'll return an error
+                    return OperationResult(
+                        success=False,
+                        status=OperationStatus.FAILED,
+                        error="Could not extract text content and download setup not implemented"
+                    )
+                    
+            except Exception as e:
+                logger.error(f"❌ TEXT FILE DOWNLOAD: Error getting text content: {str(e)}")
+                return OperationResult(
+                    success=False,
+                    status=OperationStatus.FAILED,
+                    error=f"Failed to get text content: {str(e)}"
+                )
+                
         except Exception as e:
-            logger.error(f"Failed to download DIBBS text file: {str(e)}")
+            error_msg = f"Text file download operation failed: {str(e)}"
+            logger.error(error_msg, exc_info=True)
             return OperationResult(
                 success=False,
                 status=OperationStatus.FAILED,
-                error=str(e),
-                metadata={
-                    "operation": self.name,
-                    "inputs": kwargs
-                }
+                error=error_msg
             )
     
-    def validate_inputs(self, **kwargs) -> bool:
+    def can_apply_to_batch(self) -> bool:
         """
-        Validate the inputs for this operation.
+        Text file download cannot be applied to batches.
         
-        Args:
-            **kwargs: Input parameters to validate
-            
         Returns:
-            True if inputs are valid, False otherwise
+            False - this operation is not batchable
         """
-        required_inputs = self.required_inputs
-        
-        # Check required inputs
-        for required_input in required_inputs:
-            if required_input not in kwargs:
-                logger.error(f"Missing required input: {required_input}")
-                return False
-            if kwargs[required_input] is None:
-                logger.error(f"Required input is None: {required_input}")
-                return False
-        
-        # Validate dibbs_base_url
-        dibbs_base_url = kwargs.get("dibbs_base_url")
-        if not isinstance(dibbs_base_url, str) or not dibbs_base_url.startswith("http"):
-            logger.error(f"Invalid DIBBS base URL: {dibbs_base_url}")
-            return False
-        
-        # Validate download_dir
-        download_dir = kwargs.get("download_dir")
-        if not isinstance(download_dir, str):
-            logger.error(f"Invalid download directory: {download_dir}")
-            return False
-        
-        # Validate timeout
-        timeout = kwargs.get("timeout", 30)
-        if not isinstance(timeout, (int, float)) or timeout <= 0:
-            logger.error(f"Invalid timeout value: {timeout}")
-            return False
-        
-        return True
+        return False

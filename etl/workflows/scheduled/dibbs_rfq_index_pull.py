@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-DIBBS RFQ Index Scheduled Data Pull Workflow
+DIBBS RFQ Index Pull Workflow
 
-This workflow runs daily at 2:30 AM to:
-1. Navigate to the DIBBS archive downloads page for a specific date
-2. Handle consent pages if they appear
-3. Download the RFQ index text file
-4. Parse the text file using the index processor
-5. Upsert the parsed data to the rfq_index_extract table in Supabase
+This workflow downloads and processes the daily RFQ index file from DIBBS.
+It follows these steps:
+1. Setup chromedriver
+2. Navigate to archive page
+3. Handle consent page
+4. Download index.txt
+5. Parse index.txt file
+6. Upload to supabase
 """
 
 import argparse
@@ -16,8 +18,9 @@ import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Dict, Any, List, Optional
 
-# Add the etl directory to the Python path
+# Add the project root to the path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from core.operations.chrome_setup_operation import ChromeSetupOperation
@@ -25,218 +28,331 @@ from core.operations.archive_downloads_navigation_operation import ArchiveDownlo
 from core.operations.consent_page_operation import ConsentPageOperation
 from core.operations.dibbs_text_file_download_operation import DibbsTextFileDownloadOperation
 from core.operations.supabase_upload_operation import SupabaseUploadOperation
-from core.processors.index_processor import IndexProcessor
 from utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
+# Unit type mapping for parsing
+UNIT_TYPE_MAPPING = {
+    'EA': 'Each',
+    'FT': 'Foot',
+    'IN': 'Inch',
+    'LB': 'Pound',
+    'YD': 'Yard',
+    'GA': 'Gallon',
+    'PR': 'Pair',
+    'UN': 'Unit',
+    'BG': 'Bag',
+    'BX': 'Box',
+    'CA': 'Case',
+    'CT': 'Count',
+    'DR': 'Dozen',
+    'PK': 'Pack',
+    'RL': 'Roll',
+    'ST': 'Set',
+    'TK': 'Tank',
+    'TU': 'Tube',
+    'WA': 'Watt',
+    'WH': 'Watt Hour'
+}
 
-def get_target_date(date_input: str = None) -> str:
-    """Get the target date for the archive download."""
-    if date_input:
-        try:
-            datetime.strptime(date_input, '%Y-%m-%d')
-            return date_input
-        except ValueError:
-            logger.warning(f"Invalid date format: {date_input}. Using yesterday's date instead.")
+def get_target_date(target_date: Optional[str] = None) -> str:
+    """
+    Get the target date for processing.
     
+    Args:
+        target_date: Optional specific date in YYYY-MM-DD format
+        
+    Returns:
+        Date string in YYYY-MM-DD format
+    """
+    if target_date:
+        return target_date
+    
+    # Default to yesterday for scheduled runs
     yesterday = datetime.now() - timedelta(days=1)
     return yesterday.strftime('%Y-%m-%d')
 
-
-def parse_text_file(file_path: str) -> list:
-    """Parse the downloaded text file and return structured data."""
-    logger.info(f"Parsing text file: {file_path}")
-    
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Text file not found: {file_path}")
-    
-    processor = IndexProcessor()
-    parsed_data = []
-    
-    with open(file_path, 'r') as f:
-        lines = f.readlines()
-        
-        # Skip header lines (starting with #)
-        data_lines = [line.strip() for line in lines if not line.strip().startswith('#') and line.strip()]
-        
-        # Parse each line (assuming CSV-like format)
-        for line in data_lines:
-            if line:
-                parts = line.split(',')
-                if len(parts) >= 4:
-                    solicitation_info = {
-                        "nsn": parts[0].strip(),
-                        "amsc": parts[1].strip(),
-                        "status": parts[2].strip(),
-                        "description": parts[3].strip(),
-                        "source_file": file_path,
-                        "processed_at": datetime.now().isoformat()
-                    }
-                    
-                    # Process using the index processor
-                    processed_data = processor.process_solicitation_info(solicitation_info)
-                    parsed_data.append(processed_data)
-    
-    logger.info(f"Successfully parsed {len(parsed_data)} records")
-    return parsed_data
-
-
-def execute_dibbs_rfq_index_workflow(target_date: str = None) -> dict:
+def parse_index_file(file_path: str) -> List[List[str]]:
     """
-    Execute the DIBBS RFQ index pull workflow.
+    Parse the index.txt file using the specific parsing logic.
     
     Args:
-        target_date: Target date for archive download (YYYY-MM-DD format)
+        file_path: Path to the downloaded index.txt file
         
     Returns:
-        Dictionary with workflow results
+        List of parsed rows with extracted data
     """
-    date_to_process = get_target_date(target_date)
-    logger.info(f"Starting DIBBS RFQ Index workflow for date: {date_to_process}")
-    
     try:
-        # Step 1: Setup Chrome
-        logger.info("Step 1: Setting up Chrome browser")
-        chrome_op = ChromeSetupOperation()
-        chrome_result = chrome_op._execute({"headless": True, "timeout": 30}, {})
+        logger.info(f"Parsing index file: {file_path}")
+        
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Index file not found: {file_path}")
+        
+        parsed_rows = []
+        
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+        
+        logger.info(f"Read {len(lines)} lines from index file")
+        
+        for line_num, line in enumerate(lines, 1):
+            line = line.strip()
+            if not line:
+                continue
+                
+            try:
+                # Apply the specific parsing logic
+                row = line[:-11].strip().split('.pdf')
+                
+                if len(row) != 2:
+                    logger.warning(f"Line {line_num}: Invalid format, skipping")
+                    continue
+                
+                part_1 = row[0].replace(' ', '')
+                part_2 = row[1].strip()
+                
+                solicitation_number = part_1[:13]  # SN is 13 digits
+                
+                shift = 0 if '-' not in part_1[:40] else 1
+                
+                national_stock_number = part_1[13:26 + shift]  # NSN is 13 digits
+                purchase_request_number = part_1[26 + shift: 36 + shift]  # PRN is 10 digits
+                
+                return_by_date = part_1[36 + shift: 44 + shift]  # 8 digits -- mm/dd/yy
+                
+                quantity = int(part_2[:7])  # 7 digit int
+                unit_type = part_2[7:9]  # 2 digit code
+                unit_type_long = UNIT_TYPE_MAPPING.get(unit_type, 'Unknown')
+                
+                item, *desc = part_2[9:].split(',')
+                
+                parsed_row = [
+                    solicitation_number,
+                    national_stock_number,
+                    purchase_request_number,
+                    return_by_date,
+                    quantity,
+                    unit_type,
+                    unit_type_long,
+                    item, 
+                    ','.join(desc).strip(),
+                    row[0] + row[1]  # raw row
+                ]
+                
+                parsed_rows.append(parsed_row)
+                logger.debug(f"Line {line_num}: Parsed successfully - SN: {solicitation_number}, NSN: {national_stock_number}")
+                
+            except Exception as e:
+                logger.warning(f"Line {line_num}: Parsing error: {str(e)}, skipping")
+                continue
+        
+        logger.info(f"Successfully parsed {len(parsed_rows)} rows from index file")
+        return parsed_rows
+        
+    except Exception as e:
+        logger.error(f"Error parsing index file: {str(e)}")
+        raise
+
+def execute_dibbs_rfq_index_workflow(
+    headless: bool = True,
+    timeout: int = 30,
+    target_date: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Execute the DIBBS RFQ Index Pull workflow.
+    
+    Args:
+        headless: Whether to run Chrome in headless mode
+        timeout: Timeout for page operations
+        target_date: Optional specific date for processing
+        
+    Returns:
+        Dictionary containing workflow results
+    """
+    try:
+        logger.info("🚀 Starting DIBBS RFQ Index Pull Workflow")
+        
+        # Get target date
+        date_to_process = get_target_date(target_date)
+        logger.info(f"Processing date: {date_to_process}")
+        
+        # Step 1: Setup Chrome driver
+        logger.info("Step 1: Setting up Chrome driver")
+        chrome_op = ChromeSetupOperation(headless=headless)
+        chrome_result = chrome_op._execute({"headless": headless, "timeout": timeout}, {})
         
         if not chrome_result.success:
             raise Exception(f"Chrome setup failed: {chrome_result.error}")
         
         chrome_driver = chrome_result.data.get('driver')
-        logger.info("✅ Chrome setup completed")
+        logger.info("✅ Chrome driver setup completed")
         
-        # Step 2: Navigate to archive downloads page
-        logger.info("Step 2: Navigating to archive downloads page")
-        nav_op = ArchiveDownloadsNavigationOperation()
-        nav_result = nav_op._execute({
-            "date": date_to_process,
-            "chrome_driver": chrome_driver,
-            "base_url": "https://dibbs2.bsm.dla.mil",
-            "timeout": 30
-        }, {})
+        # Step 2: Navigate to archive page
+        logger.info("Step 2: Navigating to archive page")
+        archive_nav_op = ArchiveDownloadsNavigationOperation()
+        nav_result = archive_nav_op._execute({
+            'target_date': date_to_process,
+            'timeout': timeout
+        }, {'chrome_driver': chrome_driver})
         
         if not nav_result.success:
             raise Exception(f"Archive navigation failed: {nav_result.error}")
         
-        logger.info("✅ Archive navigation completed")
+        logger.info("✅ Archive page navigation completed")
         
-        # Step 3: Handle consent page if present
+        # Step 3: Handle consent page
         logger.info("Step 3: Handling consent page")
         consent_op = ConsentPageOperation()
         consent_result = consent_op._execute({
-            "nsn": "archive_download",
-            "timeout": 30,
-            "retry_attempts": 3,
-            "base_url": "https://dibbs2.bsm.dla.mil"
-        }, {"chrome_driver": chrome_driver})
+            'timeout': timeout,
+            'retry_attempts': 3,
+            'base_url': 'https://www.dibbs.bsm.dla.mil'
+        }, {'chrome_driver': chrome_driver})
         
-        if not consent_result.success:
-            logger.warning(f"Consent page handling failed: {consent_result.error}")
+        if consent_result.success:
+            logger.info("✅ Consent page handled successfully")
         else:
-            logger.info("✅ Consent page handled")
+            logger.warning(f"⚠️ Consent page handling failed: {consent_result.error}")
         
-        # Step 4: Download text file
-        logger.info("Step 4: Downloading text file")
+        # Step 4: Download index.txt file
+        logger.info("Step 4: Downloading index.txt file")
         download_op = DibbsTextFileDownloadOperation()
         download_result = download_op._execute({
-            "dibbs_base_url": "https://dibbs2.bsm.dla.mil",
-            "download_dir": os.getenv("DIBBS_DOWNLOAD_DIR", "./downloads"),
-            "file_type": "rfq_index",
-            "target_filename": f"dibbs_rfq_index_{date_to_process.replace('-', '')}"
-        }, {})
+            'timeout': timeout,
+            'retry_attempts': 3
+        }, {'chrome_driver': chrome_driver})
         
         if not download_result.success:
-            raise Exception(f"Text file download failed: {download_result.error}")
+            raise Exception(f"Index file download failed: {download_result.error}")
         
-        file_path = download_result.data['file_path']
-        logger.info(f"✅ Text file downloaded: {file_path}")
+        file_path = download_result.data.get('file_path')
+        logger.info(f"✅ Index file downloaded: {file_path}")
         
-        # Step 5: Parse text file
-        logger.info("Step 5: Parsing text file")
-        parsed_data = parse_text_file(file_path)
-        logger.info("✅ Text file parsing completed")
+        # Step 5: Parse index.txt file
+        logger.info("Step 5: Parsing index.txt file")
+        parsed_data = parse_index_file(file_path)
+        
+        if not parsed_data:
+            logger.warning("⚠️ No data parsed from index file")
+            return {
+                'success': True,
+                'date_processed': date_to_process,
+                'records_processed': 0,
+                'file_path': file_path,
+                'message': 'No data to process'
+            }
+        
+        logger.info(f"✅ Index file parsed: {len(parsed_data)} records extracted")
         
         # Step 6: Upload to Supabase
-        logger.info("Step 6: Uploading data to Supabase")
+        logger.info("Step 6: Uploading to Supabase")
         upload_op = SupabaseUploadOperation()
         
-        # Prepare results in the format expected by SupabaseUploadOperation
-        results = []
-        for record in parsed_data:
-            results.append({
-                'success': True,
-                'data': record
+        # Prepare data for upload
+        upload_data = []
+        for row in parsed_data:
+            upload_data.append({
+                'solicitation_number': row[0],
+                'national_stock_number': row[1],
+                'purchase_request_number': row[2],
+                'return_by_date': row[3],
+                'quantity': row[4],
+                'unit_type': row[5],
+                'unit_type_long': row[6],
+                'item': row[7],
+                'description': row[8],
+                'raw_row': row[9],
+                'processed_date': date_to_process,
+                'processed_at': 'now()'
             })
         
         upload_result = upload_op._execute({
-            "results": results,
-            "table_name": "rfq_index_extract",
-            "operation_type": "upsert",
-            "upsert_strategy": "merge",
-            "conflict_resolution": "update_existing",
-            "key_fields": ["nsn"],
-            "batch_size": 50
+            'results': upload_data,
+            'table_name': 'rfq_index_extract',
+            'operation_type': 'upsert',
+            'upsert_strategy': 'merge',
+            'conflict_resolution': 'update_existing',
+            'key_fields': ['solicitation_number', 'national_stock_number'],
+            'batch_size': 50
         }, {})
         
-        if not upload_result.success:
+        if upload_result.success:
+            logger.info(f"✅ Supabase upload completed: {len(upload_data)} records")
+        else:
             raise Exception(f"Supabase upload failed: {upload_result.error}")
         
-        logger.info("✅ Supabase upload completed")
+        # Cleanup
+        try:
+            if chrome_driver:
+                chrome_driver.quit()
+                logger.info("✅ Chrome driver cleaned up")
+        except Exception as e:
+            logger.warning(f"⚠️ Error during Chrome cleanup: {str(e)}")
         
-        # Workflow completed successfully
+        # Return results
         return {
-            "success": True,
-            "date_processed": date_to_process,
-            "records_processed": len(parsed_data),
-            "file_path": file_path,
-            "upload_result": upload_result.data
+            'success': True,
+            'date_processed': date_to_process,
+            'records_processed': len(parsed_data),
+            'file_path': file_path,
+            'upload_result': {
+                'upserted_count': len(upload_data),
+                'success': True
+            },
+            'message': 'DIBBS RFQ Index Pull workflow completed successfully'
         }
         
     except Exception as e:
-        logger.error(f"Workflow execution failed: {str(e)}")
+        logger.error(f"❌ DIBBS RFQ Index Pull workflow failed: {str(e)}")
+        
+        # Cleanup on failure
+        try:
+            if 'chrome_driver' in locals() and chrome_driver:
+                chrome_driver.quit()
+                logger.info("✅ Chrome driver cleaned up after failure")
+        except Exception as cleanup_error:
+            logger.warning(f"⚠️ Error during cleanup after failure: {str(cleanup_error)}")
+        
         return {
-            "success": False,
-            "error": str(e),
-            "date_processed": date_to_process
+            'success': False,
+            'date_processed': target_date or get_target_date(),
+            'error': str(e),
+            'message': 'DIBBS RFQ Index Pull workflow failed'
         }
 
-
 def main():
-    """Main entry point for the DIBBS RFQ index pull workflow."""
-    parser = argparse.ArgumentParser(description="DIBBS RFQ Index Scheduled Data Pull")
-    parser.add_argument("--force-refresh", action="store_true", help="Force refresh even if data exists")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
-    parser.add_argument("--log-level", default="INFO", help="Logging level")
-    parser.add_argument("--date", help="Target date for archive download (YYYY-MM-DD format, defaults to yesterday)")
+    """Main entry point for command line usage."""
+    parser = argparse.ArgumentParser(description="Execute DIBBS RFQ Index Pull workflow")
+    parser.add_argument("--headless", action="store_true", default=True, help="Run Chrome in headless mode (default: True)")
+    parser.add_argument("--timeout", type=int, default=30, help="Timeout for page operations in seconds (default: 30)")
+    parser.add_argument("--target-date", help="Specific date to process (YYYY-MM-DD format, defaults to yesterday)")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
     
     args = parser.parse_args()
-    
-    # Setup logging
-    log_level = getattr(logging, args.log_level.upper())
-    setup_logger(level=log_level)
     
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
-    # Get target date
-    target_date = args.date or os.getenv("TARGET_DATE")
+    logger.info("Starting DIBBS RFQ Index Pull workflow")
     
-    logger.info("Starting DIBBS RFQ Index Scheduled Data Pull Workflow")
+    # Execute workflow
+    result = execute_dibbs_rfq_index_workflow(
+        headless=args.headless,
+        timeout=args.timeout,
+        target_date=args.target_date
+    )
     
-    # Execute the workflow
-    result = execute_dibbs_rfq_index_workflow(target_date)
-    
-    if result["success"]:
-        logger.info("🎉 Workflow completed successfully!")
-        logger.info(f"Processed {result['records_processed']} records for date {result['date_processed']}")
+    # Output results
+    if result.get('success'):
+        logger.info("🎉 DIBBS RFQ Index Pull workflow completed successfully")
+        logger.info(f"Date processed: {result.get('date_processed')}")
+        logger.info(f"Records processed: {result.get('records_processed')}")
+        logger.info(f"File path: {result.get('file_path')}")
         sys.exit(0)
     else:
-        logger.error("❌ Workflow failed")
-        logger.error(f"Error: {result['error']}")
+        logger.error(f"❌ DIBBS RFQ Index Pull workflow failed: {result.get('error')}")
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

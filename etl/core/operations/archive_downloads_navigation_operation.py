@@ -36,7 +36,7 @@ class ArchiveDownloadsNavigationOperation(BaseOperation):
             name="archive_downloads_navigation", 
             description="Navigate to archive downloads pages and return HTML content"
         )
-        self.set_required_inputs(['date', 'chrome_driver'])
+        self.set_required_inputs(['target_date', 'chrome_driver'])
         self.set_optional_inputs(['base_url', 'timeout', 'wait_for_element'])
 
     def _execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> OperationResult:
@@ -51,7 +51,7 @@ class ArchiveDownloadsNavigationOperation(BaseOperation):
             OperationResult with HTML content or error information
         """
         try:
-            date_input = inputs.get('date')
+            date_input = inputs.get('target_date')
             driver = inputs.get('chrome_driver')
             base_url = inputs.get('base_url', 'https://dibbs2.bsm.dla.mil')
             timeout = inputs.get('timeout', 30)
@@ -61,7 +61,7 @@ class ArchiveDownloadsNavigationOperation(BaseOperation):
                 return OperationResult(
                     success=False,
                     status=OperationStatus.FAILED,
-                    error="Missing required input: 'date'"
+                    error="Missing required input: 'target_date'"
                 )
             
             if not driver:

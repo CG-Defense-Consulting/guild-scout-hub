@@ -123,7 +123,7 @@ class SupabaseUploadOperation(BaseOperation):
             operation_type = inputs.get('operation_type', 'upsert')  # 'upsert' or 'update'
             upsert_strategy = inputs.get('upsert_strategy', 'merge')  # 'merge' or 'ignore'
             conflict_resolution = inputs.get('conflict_resolution', 'update_existing')
-            key_fields = inputs.get('key_fields', ['nsn'])  # Fields to use for conflict resolution
+            key_fields = inputs.get('key_fields', ['national_stock_number'])  # Fields to use for conflict resolution
             
             if not results:
                 logger.warning("No results to upload")
