@@ -157,6 +157,38 @@ export type Database = {
         }
         Relationships: []
       }
+      partner_queue: {
+        Row: {
+          id: string
+          partner: string
+          submitted_at: string
+          submitted_by: string
+          partner_type: 'MFG' | 'LOG' | 'SUP'
+        }
+        Insert: {
+          id: string
+          partner: string
+          submitted_at?: string
+          submitted_by: string
+          partner_type: 'MFG' | 'LOG' | 'SUP'
+        }
+        Update: {
+          id?: string
+          partner?: string
+          submitted_at?: string
+          submitted_by?: string
+          partner_type?: 'MFG' | 'LOG' | 'SUP'
+        }
+        Relationships: [
+          {
+            foreignKeyName: "partner_queue_id_fkey"
+            columns: ["id"]
+            isOneToOne: true
+            referencedRelation: "universal_contract_queue"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       universal_contract_queue: {
         Row: {
           added_by: string | null

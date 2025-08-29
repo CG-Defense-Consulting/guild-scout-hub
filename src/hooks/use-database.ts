@@ -855,3 +855,94 @@ export const useUploadDocument = () => {
     },
   });
 };
+
+// Hook for fetching partner queue data
+export const usePartnerQueue = (partnerName?: string) => {
+  return useQuery({
+    queryKey: ['partner_queue', partnerName],
+    queryFn: async () => {
+      let query = supabase
+        .from('partner_queue')
+        .select(`
+          *,
+          universal_contract_queue (
+            id,
+            part_number,
+            long_description,
+            current_stage,
+            created_at,
+            destination_json,
+            rfq_index_extract (
+              id,
+              solicitation_number,
+              national_stock_number,
+              quantity,
+              item,
+              desc
+            )
+          )
+        `);
+      
+      // If partnerName is provided, filter by it
+      if (partnerName) {
+        query = query.eq('partner', partnerName);
+      }
+      // If no partnerName, get all partner queue entries (for partners to see all assignments)
+      
+      const { data, error } = await query;
+      
+      if (error) {
+        console.error('Error fetching partner queue:', error);
+        throw error;
+      }
+      
+      console.log('Partner queue data:', data); // Debug log
+      return data || [];
+    },
+  });
+};
+
+// Hook for adding contracts to partner queue
+export const useAddToPartnerQueue = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ 
+      contractId, 
+      partner, 
+      partnerType,
+      notes 
+    }: { 
+      contractId: string; 
+      partner: string; 
+      partnerType: 'MFG' | 'LOG' | 'SUP';
+      notes?: string;
+    }) => {
+      try {
+        const { data, error } = await supabase
+          .from('partner_queue')
+          .insert({
+            id: contractId,
+            partner: partner,
+            partner_type: partnerType,
+            submitted_at: new Date().toISOString(),
+            submitted_by: (await supabase.auth.getUser()).data.user?.email || 'system'
+          })
+          .select()
+          .single();
+        
+        if (error) throw error;
+        
+        return data;
+      } catch (error) {
+        console.error('Error adding to partner queue:', error);
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      // Invalidate relevant queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ['partner_queue'] });
+      queryClient.invalidateQueries({ queryKey: ['universal_contract_queue'] });
+    },
+  });
+};

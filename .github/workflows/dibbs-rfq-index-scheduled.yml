@@ -114,7 +114,7 @@ jobs:
           fi
           
           if [ "${{ github.event.inputs.target_date }}" != "" ]; then
-            CMD_ARGS="$CMD_ARGS --date ${{ github.event.inputs.target_date }}"
+            CMD_ARGS="$CMD_ARGS --target-date ${{ github.event.inputs.target_date }}"
           fi
           
           echo "Executing command: $CMD_ARGS"
