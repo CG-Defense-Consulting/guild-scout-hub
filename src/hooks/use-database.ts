@@ -870,7 +870,16 @@ export const usePartnerQueue = (partnerName?: string) => {
             part_number,
             long_description,
             current_stage,
-            created_at
+            created_at,
+            destination_json,
+            rfq_index_extract (
+              id,
+              solicitation_number,
+              national_stock_number,
+              quantity,
+              item,
+              desc
+            )
           )
         `);
       

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { Calendar, User, Package, FileText, ExternalLink, Download, Eye } from 'lucide-react';
+import { Calendar, Package, FileText, Download, Eye } from 'lucide-react';
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -21,6 +21,15 @@ interface PartnerAssignmentDetailProps {
       long_description: string | null;
       current_stage: string | null;
       created_at: string;
+      destination_json?: any;
+      rfq_index_extract: {
+        id: string;
+        solicitation_number: string;
+        national_stock_number: string;
+        quantity: number;
+        item: string;
+        desc: string;
+      };
     };
   };
   onClose: () => void;
@@ -118,7 +127,7 @@ export const PartnerAssignmentDetail: React.FC<PartnerAssignmentDetailProps> = (
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = downloadUrl;
-      link.download = name;
+      link.download = formatDocumentName(name);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -141,6 +150,22 @@ export const PartnerAssignmentDetail: React.FC<PartnerAssignmentDetailProps> = (
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  const formatDocumentName = (fileName: string) => {
+    // If it's a contract document (starts with "contract-"), extract the solicitation number
+    if (fileName.startsWith('contract-')) {
+      const parts = fileName.split('-');
+      if (parts.length >= 2) {
+        // Take the last element and add .pdf extension
+        const solicitationNumber = parts[parts.length - 1];
+        // Remove any existing extension and add .pdf
+        const cleanName = solicitationNumber.split('.')[0];
+        return `${cleanName}.pdf`;
+      }
+    }
+    // For other documents, return the original name
+    return fileName;
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <Card className="w-full max-w-6xl max-h-[90vh] overflow-y-auto">
@@ -153,33 +178,13 @@ export const PartnerAssignmentDetail: React.FC<PartnerAssignmentDetailProps> = (
         
         <CardContent className="space-y-6">
           {/* Assignment Overview */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium text-muted-foreground">Contract ID</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-lg font-mono">{assignment.id}</p>
-              </CardContent>
-            </Card>
-            
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Partner</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-lg font-semibold">{assignment.partner}</p>
-              </CardContent>
-            </Card>
-            
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Partner Type</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Badge className={getPartnerTypeColor(assignment.partner_type)}>
-                  {assignment.partner_type}
-                </Badge>
               </CardContent>
             </Card>
           </div>
@@ -193,17 +198,40 @@ export const PartnerAssignmentDetail: React.FC<PartnerAssignmentDetailProps> = (
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {assignment.universal_contract_queue.part_number && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium text-muted-foreground">Part Number</label>
-                  <p className="text-base">{assignment.universal_contract_queue.part_number}</p>
+                  <label className="text-sm font-medium text-muted-foreground">Solicitation Number</label>
+                  <p className="text-base font-mono">{assignment.universal_contract_queue.rfq_index_extract?.solicitation_number || 'Not available'}</p>
                 </div>
-              )}
+                
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">National Stock Number</label>
+                  <p className="text-base font-mono">
+                    {assignment.universal_contract_queue.rfq_index_extract?.national_stock_number || 'Not available'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Quantity</label>
+                  <p className="text-base">
+                    {assignment.universal_contract_queue.rfq_index_extract?.quantity?.toLocaleString() || 'Not available'}
+                  </p>
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Item</label>
+                  <p className="text-base">
+                    {assignment.universal_contract_queue.rfq_index_extract?.item || 'Not available'}
+                  </p>
+                </div>
+              </div>
               
-              {assignment.universal_contract_queue.long_description && (
+              {assignment.universal_contract_queue.rfq_index_extract?.desc && (
                 <div>
                   <label className="text-sm font-medium text-muted-foreground">Description</label>
-                  <p className="text-base">{assignment.universal_contract_queue.long_description}</p>
+                  <p className="text-base">{assignment.universal_contract_queue.rfq_index_extract.desc}</p>
                 </div>
               )}
               
@@ -215,6 +243,40 @@ export const PartnerAssignmentDetail: React.FC<PartnerAssignmentDetailProps> = (
               </div>
             </CardContent>
           </Card>
+
+          {/* Destination Details */}
+          {assignment.universal_contract_queue.destination_json && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Package className="w-5 h-5" />
+                  Destination Details
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {Array.isArray(assignment.universal_contract_queue.destination_json) ? (
+                  <div className="space-y-3">
+                    {assignment.universal_contract_queue.destination_json.map((dest: any, index: number) => (
+                      <div key={index} className="p-3 border rounded-lg bg-muted/50">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-sm font-medium text-muted-foreground">Location</label>
+                            <p className="text-base">{dest.location || 'Not specified'}</p>
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium text-muted-foreground">Quantity</label>
+                            <p className="text-base">{dest.quantity || 'Not specified'}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">Destination details not available</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Timeline Information */}
           <Card>
@@ -241,26 +303,7 @@ export const PartnerAssignmentDetail: React.FC<PartnerAssignmentDetailProps> = (
             </CardContent>
           </Card>
 
-          {/* Partner Information */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <User className="w-5 h-5" />
-                Partner Information
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-muted-foreground">Partner Name</label>
-                <p className="text-base">{assignment.partner}</p>
-              </div>
-              
-              <div>
-                <label className="text-sm font-medium text-muted-foreground">Submitted By</label>
-                <p className="text-base">{assignment.submitted_by}</p>
-              </div>
-            </CardContent>
-          </Card>
+
 
           {/* Documents Section */}
           <Card>
@@ -283,15 +326,17 @@ export const PartnerAssignmentDetail: React.FC<PartnerAssignmentDetailProps> = (
                 <div className="space-y-3">
                   {documents.map((doc, index) => (
                     <div key={index} className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
-                      <div className="flex items-center gap-3">
-                        <FileText className="w-5 h-5 text-blue-600" />
-                        <div>
-                          <p className="font-medium text-sm">{doc.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {formatFileSize(doc.size)} • {doc.type}
-                          </p>
-                        </div>
-                      </div>
+                                             <div className="flex items-center gap-3">
+                         <FileText className="w-5 h-5 text-blue-600" />
+                         <div>
+                           <p className="font-medium text-sm">
+                             {formatDocumentName(doc.name)}
+                           </p>
+                           <p className="text-xs text-muted-foreground">
+                             {formatFileSize(doc.size)} • {doc.type}
+                           </p>
+                         </div>
+                       </div>
                       <div className="flex gap-2">
                         <Button
                           size="sm"
@@ -317,33 +362,7 @@ export const PartnerAssignmentDetail: React.FC<PartnerAssignmentDetailProps> = (
             </CardContent>
           </Card>
 
-          {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row gap-3 pt-4">
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                // Navigate to the contract tracker for this contract
-                window.open(`/tracker?contract=${assignment.id}`, '_blank');
-              }}
-            >
-              <ExternalLink className="w-4 h-4 mr-2" />
-              View in Contract Tracker
-            </Button>
-            
-            <Button 
-              variant="outline"
-              onClick={() => {
-                // Copy contract ID to clipboard
-                navigator.clipboard.writeText(assignment.id);
-                toast({
-                  title: 'Copied',
-                  description: 'Contract ID copied to clipboard',
-                });
-              }}
-            >
-              Copy Contract ID
-            </Button>
-          </div>
+
         </CardContent>
       </Card>
     </div>
