@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { useUpdateDestinations, useUpdateMilitaryStandards, useUploadDocument, extractOriginalFileName, StageTimelineEntry } from '@/hooks/use-database';
+import { useUpdateDestinations, useUpdateMilitaryStandards, useUploadDocument, useAddToPartnerQueue, extractOriginalFileName, StageTimelineEntry } from '@/hooks/use-database';
 import { supabase } from '@/integrations/supabase/client';
 import { useWorkflow } from '@/hooks/use-workflow';
 import { getClosedStatusStyle } from '@/lib/utils';
@@ -56,8 +56,18 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
   const [isPullingRfq, setIsPullingRfq] = useState(false);
   const [isExtractingAmsc, setIsExtractingAmsc] = useState(false);
   
+  // Partner assignment state
+  const [selectedPartner, setSelectedPartner] = useState('');
+  const [selectedPartnerType, setSelectedPartnerType] = useState<'MFG' | 'LOG' | 'SUP'>('MFG');
+  const [assignmentNotes, setAssignmentNotes] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [priority, setPriority] = useState('');
+  
   // Use the new workflow hook
   const { triggerPullSingleRfqPdf, triggerExtractNsnAmsc } = useWorkflow();
+  
+  // Use the partner queue hook
+  const addToPartnerQueue = useAddToPartnerQueue();
   
   // Calculate total destination quantity
   const totalDestinationQuantity = destinations.reduce((total, dest) => {
@@ -430,6 +440,57 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
       });
     } finally {
       setIsExtractingAmsc(false);
+    }
+  };
+
+  const handleSendToPartner = async () => {
+    if (!contract?.id) {
+      toast({
+        title: 'Error',
+        description: 'No contract ID available.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!selectedPartner.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Please select a partner.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      await addToPartnerQueue.mutateAsync({
+        contractId: contract.id,
+        partner: selectedPartner.trim(),
+        partnerType: selectedPartnerType,
+        notes: assignmentNotes.trim() || undefined
+      });
+
+      toast({
+        title: 'Success',
+        description: `Contract has been sent to ${selectedPartner} successfully.`,
+      });
+
+      // Reset form
+      setSelectedPartner('');
+      setSelectedPartnerType('MFG');
+      setAssignmentNotes('');
+      setDueDate('');
+      setPriority('');
+
+      // Close the detail view
+      onOpenChange(false);
+    } catch (error) {
+      console.error('Error sending to partner:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to send contract to partner. Please try again.',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -853,7 +914,26 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
               <CardContent className="space-y-4">
                 <div>
                   <Label htmlFor="partner-select">Select Partner</Label>
-                  <Input id="partner-select" placeholder="Choose partner organization" />
+                  <Input 
+                    id="partner-select" 
+                    placeholder="Choose partner organization"
+                    value={selectedPartner}
+                    onChange={(e) => setSelectedPartner(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="partner-type">Partner Type</Label>
+                  <select
+                    id="partner-type"
+                    value={selectedPartnerType}
+                    onChange={(e) => setSelectedPartnerType(e.target.value as 'MFG' | 'LOG' | 'SUP')}
+                    className="w-full px-3 py-2 border border-input bg-background rounded-md text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  >
+                    <option value="MFG">Manufacturing (MFG)</option>
+                    <option value="LOG">Logistics (LOG)</option>
+                    <option value="SUP">Supply (SUP)</option>
+                  </select>
                 </div>
 
                 <div>
@@ -862,17 +942,29 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                     id="assignment-notes" 
                     placeholder="Special instructions or requirements for the partner..."
                     rows={3}
+                    value={assignmentNotes}
+                    onChange={(e) => setAssignmentNotes(e.target.value)}
                   />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="due-date">Due Date</Label>
-                    <Input id="due-date" type="date" />
+                    <Input 
+                      id="due-date" 
+                      type="date" 
+                      value={dueDate}
+                      onChange={(e) => setDueDate(e.target.value)}
+                    />
                   </div>
                   <div>
                     <Label htmlFor="priority">Priority Level</Label>
-                    <Input id="priority" placeholder="High, Medium, Low" />
+                    <Input 
+                      id="priority" 
+                      placeholder="High, Medium, Low"
+                      value={priority}
+                      onChange={(e) => setPriority(e.target.value)}
+                    />
                   </div>
                 </div>
 
@@ -964,16 +1056,12 @@ export const ContractDetail = ({ contract, open, onOpenChange }: ContractDetailP
                 </div>
 
                 <Button 
-                  onClick={() => {
-                    toast({
-                      title: 'Partner Assignment',
-                      description: 'Partner assignment functionality will be implemented in a future iteration.',
-                    });
-                  }}
+                  onClick={handleSendToPartner}
+                  disabled={addToPartnerQueue.isPending || !selectedPartner.trim()}
                   className="w-full"
                 >
                   <Send className="w-4 h-4 mr-2" />
-                  Send Assignment to Partner
+                  {addToPartnerQueue.isPending ? 'Sending...' : 'Send Assignment to Partner'}
                 </Button>
               </CardContent>
             </Card>

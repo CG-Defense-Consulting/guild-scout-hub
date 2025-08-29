@@ -4,18 +4,19 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { usePricingQueue } from '@/hooks/use-database';
+import { usePartnerQueue } from '@/hooks/use-database';
 import { useAuth } from '@/hooks/use-auth';
 import { Users, Filter, Calendar, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
+import { PartnerDataTable } from '@/components/PartnerDataTable';
+import { PartnerAssignmentDetail } from '@/components/PartnerAssignmentDetail';
 
 export const Hub = () => {
   const { userRole } = useAuth();
   const [partnerFilter, setPartnerFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [selectedAssignment, setSelectedAssignment] = useState<any>(null);
   
-  const { data: pricingQueue = [], isLoading } = usePricingQueue(
-    userRole === 'PARTNER' ? 'current-user' : undefined
-  );
+  const { data: partnerQueue = [], isLoading } = usePartnerQueue();
 
   const getStatusIcon = (status?: string) => {
     switch (status) {
@@ -36,8 +37,8 @@ export const Hub = () => {
     }
   };
 
-  const filteredQueue = pricingQueue.filter(item => {
-    if (partnerFilter && !item.client?.toLowerCase().includes(partnerFilter.toLowerCase())) {
+  const filteredQueue = partnerQueue.filter(item => {
+    if (partnerFilter && !item.partner?.toLowerCase().includes(partnerFilter.toLowerCase())) {
       return false;
     }
     if (statusFilter && statusFilter !== 'all') {
@@ -63,7 +64,7 @@ export const Hub = () => {
           </p>
         </div>
         <Badge variant="outline" className="bg-guild-accent-1/10 text-guild-accent-1">
-          {filteredQueue.length} items
+          {filteredQueue.length} partner assignments
         </Badge>
       </div>
 
@@ -79,7 +80,7 @@ export const Hub = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <Input
-                  placeholder="Filter by partner..."
+                  placeholder="Filter by partner organization..."
                   value={partnerFilter}
                   onChange={(e) => setPartnerFilter(e.target.value)}
                 />
@@ -107,85 +108,103 @@ export const Hub = () => {
         </Card>
       )}
 
-      <div className="space-y-4">
-        {isLoading ? (
-          <div className="text-center py-8">Loading assignments...</div>
-        ) : filteredQueue.length === 0 ? (
-          <Card>
-            <CardContent className="text-center py-8">
-              <Users className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="text-lg font-semibold mb-2">No assignments found</h3>
-              <p className="text-muted-foreground">
-                {userRole === 'CGDC' 
-                  ? 'No partner assignments match your current filters.'
-                  : 'You have no pending assignments at this time.'
-                }
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-4">
-            {filteredQueue.map((item) => (
-              <Card key={item.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        {getStatusIcon(item.client_type)}
-                        <h3 className="font-semibold">{item.client || 'Partner Assignment'}</h3>
-                        {getStatusBadge(item.client_type)}
-                      </div>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-muted-foreground">
-                        <div>
-                          <div className="flex items-center gap-1 mb-1">
-                            <Calendar className="w-3 h-3" />
-                            Received
-                          </div>
-                          <div>{item.received_at ? new Date(item.received_at).toLocaleDateString() : 'N/A'}</div>
+      {userRole === 'PARTNER' ? (
+        <PartnerDataTable />
+      ) : (
+        <div className="space-y-4">
+          {isLoading ? (
+            <div className="text-center py-8">Loading assignments...</div>
+          ) : filteredQueue.length === 0 ? (
+            <Card>
+              <CardContent className="text-center py-8">
+                <Users className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                <h3 className="text-lg font-semibold mb-2">No assignments found</h3>
+                <p className="text-muted-foreground">
+                  {userRole === 'CGDC' 
+                    ? 'No partner assignments match your current filters.'
+                    : 'You have no pending assignments at this time.'
+                  }
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4">
+              {filteredQueue.map((item) => (
+                <Card key={item.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          {getStatusIcon(item.universal_contract_queue?.current_stage)}
+                          <h3 className="font-semibold">{item.partner || 'Partner Assignment'}</h3>
+                          <Badge variant="outline" className="bg-blue-100 text-blue-800">
+                            {item.partner_type}
+                          </Badge>
                         </div>
                         
-                        <div>
-                          <div className="flex items-center gap-1 mb-1">
-                            <Clock className="w-3 h-3" />
-                            Due Date
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-muted-foreground">
+                          <div>
+                            <div className="flex items-center gap-1 mb-1">
+                              <Calendar className="w-3 h-3" />
+                              Submitted
+                            </div>
+                            <div>{item.submitted_at ? new Date(item.submitted_at).toLocaleDateString() : 'N/A'}</div>
                           </div>
-                          <div>{item.submitted_at ? new Date(item.submitted_at).toLocaleDateString() : 'TBD'}</div>
+                          
+                          <div>
+                            <div className="flex items-center gap-1 mb-1">
+                              <Clock className="w-3 h-3" />
+                              Stage
+                            </div>
+                            <div>{item.universal_contract_queue?.current_stage || 'Unknown'}</div>
+                          </div>
+                          
+                          <div>
+                            <div className="flex items-center gap-1 mb-1">
+                              <Users className="w-3 h-3" />
+                              Assigned By
+                            </div>
+                            <div>{item.submitted_by || 'System'}</div>
+                          </div>
                         </div>
                         
-                        <div>
-                          <div className="flex items-center gap-1 mb-1">
-                            <Users className="w-3 h-3" />
-                            Assigned By
+                        {item.universal_contract_queue?.part_number && (
+                          <div className="mt-3 p-2 bg-muted rounded text-sm">
+                            <strong>Part Number:</strong> {item.universal_contract_queue.part_number}
                           </div>
-                          <div>{item.submitted_by || 'System'}</div>
-                        </div>
+                        )}
                       </div>
                       
-                      {item.cost_breakdown_json && (
-                        <div className="mt-3 p-2 bg-muted rounded text-sm">
-                          <strong>Notes:</strong> Cost breakdown analysis required
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="ml-4 flex flex-col gap-2">
-                      <Button size="sm" variant="outline">
-                        View Details
-                      </Button>
-                      {userRole === 'PARTNER' && (
-                        <Button size="sm">
-                          Take Action
+                      <div className="ml-4 flex flex-col gap-2">
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => setSelectedAssignment(item)}
+                        >
+                          View Details
                         </Button>
-                      )}
+                        {userRole === 'PARTNER' && (
+                          <Button size="sm">
+                            Take Action
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Partner Assignment Detail Modal */}
+      {selectedAssignment && (
+        <PartnerAssignmentDetail
+          assignment={selectedAssignment}
+          onClose={() => setSelectedAssignment(null)}
+        />
+      )}
     </div>
   );
 };
