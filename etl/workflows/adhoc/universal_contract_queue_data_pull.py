@@ -285,28 +285,20 @@ def execute_universal_contract_queue_workflow(
                     
                     if contract_data and contract_data.get('solicitation_number'):
                         # Prepare data for rfq_index_extract table
-                        tmp = {
-                            'id': contract_id,
-                            'solicitation_number': contract_data['solicitation_number'],
-                            'national_stock_number': result['nsn'],
-                            'cde_g': result['amsc_code']# AMSC code goes in cde_g field
-                        }
-                        if result['is_closed'] is not None:
-                            tmp['closed'] = result['is_closed']
-                        upload_data.append(tmp)
-                        
                         # Prepare data for universal_contract_queue table (closed status only)
-                        if result['is_closed'] is not None:
-                            queue_update = {
+                        if result['is_closed']:
+                            upload_data.append( {
                                 'id': contract_id,
                                 'closed': result['is_closed']
+                            })
+                        else:
+                            tmp = {
+                                'id': contract_id,
+                                'solicitation_number': contract_data['solicitation_number'],
+                                'national_stock_number': result['nsn'],
+                                'cde_g': result['amsc_code']# AMSC code goes in cde_g field
                             }
-                            queue_update_data.append(queue_update)
-                            if result['is_closed']:
-                                logger.info(f"📋 Contract {contract_id} marked as CLOSED - will update queue")
-                            else:
-                                logger.info(f"📋 Contract {contract_id} marked as OPEN - will update queue")
-                            logger.info(f"Prepared queue update for contract {contract_id}: closed={result['is_closed']}")
+                            upload_data.append(tmp)
                         
                         logger.info(f"Prepared upload data for SN: {contract_data['solicitation_number']}, NSN: {result['nsn']}")
                     else:
@@ -351,48 +343,6 @@ def execute_universal_contract_queue_workflow(
                         'error': str(upload_error)
                     })()
                 
-                # Step 5b: Update universal_contract_queue table for closed status
-                if queue_update_data:
-                    logger.info(f"Attempting to update {len(queue_update_data)} contracts in universal_contract_queue for closed status...")
-                    
-                    try:
-                        queue_update_result = upload_op._execute({
-                            'results': queue_update_data,
-                            'table_name': 'universal_contract_queue',
-                            'operation_type': 'update',
-                            'batch_size': 50
-                        }, {})
-                        
-                        logger.info(f"Queue update operation completed. Success: {queue_update_result.success}")
-                        
-                        if queue_update_result.success:
-                            logger.info(f"✅ Queue updates completed: {len(queue_update_data)} contracts updated")
-                            
-                            # Log summary of what was updated
-                            closed_count = sum(1 for update in queue_update_data if update['closed'])
-                            open_count = sum(1 for update in queue_update_data if not update['closed'])
-                            logger.info(f"📊 Queue Update Summary: {closed_count} contracts marked as CLOSED, {open_count} contracts marked as OPEN")
-                            
-                            if hasattr(queue_update_result, 'data') and queue_update_result.data:
-                                logger.info(f"Queue update result data: {queue_update_result.data}")
-                        else:
-                            logger.error(f"❌ Queue update failed: {queue_update_result.error}")
-                            if hasattr(queue_update_result, 'data') and queue_update_result.data:
-                                logger.error(f"Queue update result data: {queue_update_result.data}")
-                            if hasattr(queue_update_result, 'metadata') and queue_update_result.metadata:
-                                logger.error(f"Queue update result metadata: {queue_update_result.metadata}")
-                                
-                    except Exception as queue_update_error:
-                        logger.error(f"❌ Exception during queue update operation: {str(queue_update_error)}")
-                        import traceback
-                        logger.error(f"Queue update error traceback: {traceback.format_exc()}")
-                        # Continue with the workflow even if queue update fails
-                        queue_update_result = type('MockResult', (), {
-                            'success': False,
-                            'error': str(queue_update_error)
-                        })()
-                else:
-                    logger.info("ℹ️ No queue updates needed (no closed status changes)")
             else:
                 logger.info("ℹ️ No data to upload")
         
