@@ -67,27 +67,12 @@ class DibbsTextFileDownloadOperation(BaseOperation):
             retry_attempts = inputs.get('retry_attempts', 3)
             download_dir = inputs.get('download_dir', os.getenv('DIBBS_DOWNLOAD_DIR', './downloads'))
             
-            logger.info(f"🔍 TEXT FILE DOWNLOAD: Using download directory: {download_dir}")
-            logger.info(f"🔍 TEXT FILE DOWNLOAD: Timeout: {timeout}s")
-            logger.info(f"🔍 TEXT FILE DOWNLOAD: Retry attempts: {retry_attempts}")
-            
             # Ensure download directory exists
             os.makedirs(download_dir, exist_ok=True)
             
             # Get current URL to understand what we're downloading
             current_url = driver.current_url
             logger.info(f"🔍 TEXT FILE DOWNLOAD: Current URL: {current_url}")
-            
-            # Extract filename from URL if possible
-            if '.txt' in current_url:
-                # URL format: https://dibbs2.bsm.dla.mil/Downloads/RFQ/Archive/in{yy}{mm}{dd}.txt
-                filename = current_url.split('/')[-1]
-                logger.info(f"🔍 TEXT FILE DOWNLOAD: Extracted filename from URL: {filename}")
-            else:
-                # Generate filename based on current date
-                current_date = datetime.now().strftime('%Y%m%d')
-                filename = f"dibbs_rfq_index_{current_date}.txt"
-                logger.info(f"🔍 TEXT FILE DOWNLOAD: Generated filename: {filename}")
             
             # Note: Chrome download preferences are not needed for direct text content extraction
             # We'll get the content directly from the page source
@@ -126,67 +111,52 @@ class DibbsTextFileDownloadOperation(BaseOperation):
                         logger.info("🔍 TEXT FILE DOWNLOAD: Still HTML content, will try alternative approach")
                         
                         # Alternative: try to get the text content from the page
-                        try:
-                            # Look for text content in the page
-                            text_elements = driver.find_elements(By.TAG_NAME, 'pre')
-                            if text_elements:
-                                page_content = text_elements[0].text
-                                logger.info("🔍 TEXT FILE DOWNLOAD: Found text content in <pre> element")
-                            else:
-                                # Try to get text from body
-                                body_element = driver.find_element(By.TAG_NAME, 'body')
-                                page_content = body_element.text
-                                logger.info("🔍 TEXT FILE DOWNLOAD: Extracted text content from body")
-                        except Exception as e:
-                            logger.warning(f"⚠️ TEXT FILE DOWNLOAD: Could not extract text content: {e}")
-                            page_content = ""
+                        # try:
+                        #     # Look for text content in the page
+                        #     text_elements = driver.find_elements(By.TAG_NAME, 'pre')
+                        #     if text_elements:
+                        #         page_content = text_elements[0].text
+                        #         logger.info("🔍 TEXT FILE DOWNLOAD: Found text content in <pre> element")
+                        #     else:
+                        #         # Try to get text from body
+                        #         body_element = driver.find_element(By.TAG_NAME, 'body')
+                        #         page_content = body_element.text
+                        #         logger.info("🔍 TEXT FILE DOWNLOAD: Extracted text content from body")
+                        # except Exception as e:
+                        #     logger.warning(f"⚠️ TEXT FILE DOWNLOAD: Could not extract text content: {e}")
+                        #     page_content = ""
                 else:
                     logger.info("🔍 TEXT FILE DOWNLOAD: Page contains direct text content")
                 
-                # If we have text content, save it to file
-                if page_content and not page_content.startswith('<!DOCTYPE html'):
-                    file_path = os.path.join(download_dir, filename)
+                # # If we have text content, save it to file
+                # if page_content and not page_content.startswith('<!DOCTYPE html'):
+                #     # erase download_dir completely
+                #     #for file in os.listdir(download_dir):
+                #     #    os.remove(os.path.join(download_dir, file))
                     
-                    # Write the content to file
-                    with open(file_path, 'w', encoding='utf-8') as f:
-                        f.write(page_content)
+                #     # create a new file with the current date and time
+                #     file_name = datetime.now().strftime('%Y%m%d_%H%M%S') + '.txt'
+                #     file_path = os.path.join(download_dir, file_name)
+
+                #     # Write the content to file
+                #     with open(file_path, 'w', encoding='utf-8') as f:
+                #         f.write(page_content)
                     
-                    logger.info(f"🔍 TEXT FILE DOWNLOAD: Successfully saved text content to: {file_path}")
-                    logger.info(f"🔍 TEXT FILE DOWNLOAD: File size: {len(page_content)} characters")
-                    
-                    # Verify file was created
-                    if os.path.exists(file_path):
-                        file_size = os.path.getsize(file_path)
-                        logger.info(f"🔍 TEXT FILE DOWNLOAD: File verified, size: {file_size} bytes")
-                        
-                        return OperationResult(
-                            success=True,
-                            status=OperationStatus.COMPLETED,
-                            data={
-                                'file_path': file_path,
-                                'file_size': file_size,
-                                'content_length': len(page_content),
-                                'filename': filename
-                            },
-                            metadata={
-                                'download_method': 'direct_content',
-                                'source_url': current_url
-                            }
-                        )
-                    else:
-                        raise Exception("File was not created successfully")
-                        
-                else:
-                    logger.warning("⚠️ TEXT FILE DOWNLOAD: No text content found, trying download approach")
-                    
-                    # Fall back to download approach
-                    # This would require setting up Chrome download preferences properly
-                    # For now, we'll return an error
-                    return OperationResult(
-                        success=False,
-                        status=OperationStatus.FAILED,
-                        error="Could not extract text content and download setup not implemented"
-                    )
+                #     logger.info(f"🔍 TEXT FILE DOWNLOAD: Successfully saved text content to: {file_path}")
+                #     logger.info(f"🔍 TEXT FILE DOWNLOAD: File size: {len(page_content)} characters")
+                
+                return OperationResult(
+                    success=True,
+                    status=OperationStatus.COMPLETED,
+                    data={
+                        'file_path': os.path.join(download_dir, sorted(os.listdir(download_dir))[-1]),
+                        'content_length': len(page_content)
+                    },
+                    metadata={
+                        'download_method': 'direct_content',
+                        'source_url': current_url
+                    }
+                )
                     
             except Exception as e:
                 logger.error(f"❌ TEXT FILE DOWNLOAD: Error getting text content: {str(e)}")

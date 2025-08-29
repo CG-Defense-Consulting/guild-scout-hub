@@ -205,29 +205,13 @@ class SupabaseUploadOperation(BaseOperation):
         failed = 0
         errors = []
         
-        for result in batch:
+        for data in batch:
             try:
-                if not result.get('success', False):
-                    logger.warning(f"Skipping failed result: {result.get('error', 'Unknown error')}")
-                    failed += 1
-                    continue
                 
                 # Extract data from result
-                data = result.get('data', {})
-                
-                if not data:
-                    logger.warning("No data found in result")
-                    failed += 1
-                    continue
-                
-                # Validate key fields exist
-                missing_keys = [key for key in key_fields if key not in data or data[key] is None]
-                if missing_keys:
-                    logger.warning(f"Missing key fields: {missing_keys}")
-                    failed += 1
-                    continue
-                
-                # Perform upsert operation
+                # data = result.get('data', {})
+                # print(data, 'within supabase upload')
+
                 upsert_success = self._perform_upsert(data, table_name, upsert_strategy, conflict_resolution, key_fields)
                 
                 if upsert_success:
@@ -314,7 +298,7 @@ class SupabaseUploadOperation(BaseOperation):
         for result in batch:
             try:
                 if not result.get('success', False):
-                    logger.warning(f"Skipping failed result: {result.get('error', 'Unknown error')}")
+                    #logger.warning(f"Skipping failed result: {result.get('error', 'Unknown error')}")
                     failed += 1
                     continue
                 

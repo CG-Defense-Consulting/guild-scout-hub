@@ -34,7 +34,7 @@ class ConsentPageOperation(BaseOperation):
         self.set_required_inputs([])
         
         # Set optional inputs
-        self.set_optional_inputs(['nsn', 'timeout', 'retry_attempts', 'base_url', 'handle_current_page'])
+        self.set_optional_inputs(['timeout', 'retry_attempts', 'base_url', 'handle_current_page'])
     
     def _check_page_changed(self, driver, original_url: str, original_title: str, original_source_length: int) -> bool:
         """
@@ -103,17 +103,7 @@ class ConsentPageOperation(BaseOperation):
                     error="Chrome driver not found in context."
                 )
             
-            nsn = inputs.get('nsn')
             timeout = inputs.get('timeout', 30)
-            base_url = inputs.get('base_url', 'https://www.dibbs.bsm.dla.mil')
-            handle_current_page = inputs.get('handle_current_page', True)
-            
-            # If NSN is provided and we're not handling current page, navigate to NSN page
-            if nsn and not handle_current_page:
-                nsn_url = f"{base_url}/rfq/rfqnsn.aspx?value={nsn}"
-                driver.get(nsn_url)
-                import time
-                time.sleep(1)
             
             # Capture page state before clicking consent button
             original_url = driver.current_url
@@ -121,45 +111,48 @@ class ConsentPageOperation(BaseOperation):
             original_source_length = len(driver.page_source)
             
             # Look for consent button and click it
-            consent_selectors = [
-                "//input[@type='submit' and @value='OK']"
-            ]
-            
-            for selector in consent_selectors:
-                try:
-                    elements = driver.find_elements(By.XPATH, selector)
-                    if elements:
-                        logger.info(f"Found consent button: {selector}")
-                        elements[0].click()
-                        
-                        # Wait for page to process
-                        import time
-                        time.sleep(1)
-                        
-                        # Check if page changed
-                        if self._check_page_changed(driver, original_url, original_title, original_source_length):
-                            logger.info("Consent button click successful - page changed")
-                            return OperationResult(
-                                success=True,
-                                status=OperationStatus.COMPLETED,
-                                metadata={'nsn': nsn, 'consent_passed': True, 'final_url': driver.current_url}
-                            )
-                        else:
-                            logger.error("Consent button click failed - page did not change")
-                            return OperationResult(
-                                success=False,
-                                status=OperationStatus.FAILED,
-                                error="Consent button clicked but page did not change"
-                            )
-                except Exception as e:
-                    logger.warning(f"Error with selector {selector}: {str(e)}")
-                    continue
+            selector = "//input[@type='submit' and @value='OK']"
+            try:
+                elements = driver.find_elements(By.XPATH, selector)
+                if elements:
+                    logger.info(f"Found consent button: {selector}")
+                    elements[0].click()
+
+                    return OperationResult(
+                        success=True,
+                        status=OperationStatus.COMPLETED,
+                        metadata={'consent_passed': True, 'final_url': driver.current_url}
+                    )
+                    
+                    # # Wait for page to process
+                    # timeout_ctr = 0
+                    # import time
+                    # while timeout_ctr < timeout:
+                    #     if self._check_page_changed(driver, original_url, original_title, original_source_length):
+                    #         logger.info("Consent button click successful - page changed")
+                    #         return OperationResult(
+                    #             success=True,
+                    #             status=OperationStatus.COMPLETED,
+                    #             metadata={'consent_passed': True, 'final_url': driver.current_url}
+                    #         )
+                    #     timeout_ctr += 1
+                    #     time.sleep(1)
+                    
+                    # logger.error("Consent button click failed - page did not change")
+                    # return OperationResult(
+                    #     success=False,
+                    #     status=OperationStatus.FAILED,
+                    #     error="Consent button clicked but page did not change"
+                    # )
+            except Exception as e:
+                logger.warning(f"Error with selector {selector}: {str(e)}")
+                
             
             # No consent page found
             return OperationResult(
                 success=True,
                 status=OperationStatus.COMPLETED,
-                metadata={'nsn': nsn, 'consent_passed': False, 'final_url': driver.current_url}
+                metadata={'consent_passed': False, 'final_url': driver.current_url}
             )
                 
         except Exception as e:

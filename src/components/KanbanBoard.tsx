@@ -240,8 +240,8 @@ export const KanbanBoard = ({
                   {contract.national_stock_number || 'No NSN'}
                 </div>
                 
-                {/* Workflow Needed Indicator */}
-                {!contract.cde_g && (
+                {/* Workflow Needed Indicator - Only show for open solicitations */}
+                {!contract.cde_g && contract.closed !== true && (
                   <div className="group relative">
                     <Badge 
                       variant="outline" 
