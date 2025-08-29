@@ -282,6 +282,7 @@ def execute_universal_contract_queue_workflow(
                     
                     if contract_data and contract_data.get('solicitation_number'):
                         tmp = {
+                            'id': contract_id,
                             'solicitation_number': contract_data['solicitation_number'],
                             'national_stock_number': result['nsn'],
                             'cde_g': result['amsc_code']# AMSC code goes in cde_g field
