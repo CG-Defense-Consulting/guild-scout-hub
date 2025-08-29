@@ -110,7 +110,7 @@ class ChromeSetupOperation(BaseOperation):
             # Initialize the webdriver
             try:
                 driver = webdriver.Chrome(options=chrome_options)
-                driver.implicitly_wait(10)
+                driver.implicitly_wait(2)  # Reduced from 10 seconds
                 logger.info("Chrome webdriver initialized successfully")
                 
             except WebDriverException as e:
@@ -134,7 +134,7 @@ class ChromeSetupOperation(BaseOperation):
                     if chromedriver_path:
                         service = Service(executable_path=chromedriver_path)
                         driver = webdriver.Chrome(service=service, options=chrome_options)
-                        driver.implicitly_wait(10)
+                        driver.implicitly_wait(2)  # Reduced from 10 seconds
                         logger.info(f"Chrome webdriver initialized with service from {chromedriver_path}")
                     else:
                         raise WebDriverException("ChromeDriver not found in common locations")
@@ -159,6 +159,7 @@ class ChromeSetupOperation(BaseOperation):
                 success=True,
                 status=OperationStatus.COMPLETED,
                 data={
+                    'driver': driver,
                     'driver_ready': True,
                     'download_dir': download_dir,
                     'headless': self.headless

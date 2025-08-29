@@ -1,0 +1,168 @@
+name: DIBBS RFQ Index Scheduled Data Pull
+
+on:
+  # Scheduled run every day at 2:30 AM UTC
+  schedule:
+    - cron: '30 2 * * *'
+  
+  # Manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      force_refresh:
+        description: 'Force refresh even if data already exists'
+        required: false
+        type: boolean
+        default: false
+      verbose:
+        description: 'Enable verbose logging'
+        required: false
+        type: boolean
+        default: false
+      target_date:
+        description: 'Target date for archive download (YYYY-MM-DD format, defaults to yesterday)'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  pull-dibbs-rfq-index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+          
+      - name: Set up Chrome
+        uses: browser-actions/setup-chrome@v1
+        
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget unzip xvfb
+          
+      - name: Configure Chrome permissions
+        run: |
+          # Ensure Chrome can run in headless mode
+          sudo mkdir -p /etc/opt/chrome/policies/managed/
+          echo '{"CommandLineFlagSecurityWarningsEnabled": false}' | sudo tee /etc/opt/chrome/policies/managed/managed_policies.json
+          
+      - name: Setup ChromeDriver
+        uses: ./.github/actions/setup-chromedriver
+          
+      - name: Set environment variables
+        run: |
+          # Set environment variables for the workflow
+          echo "VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}" >> $GITHUB_ENV
+          echo "VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}" >> $GITHUB_ENV
+          echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
+          echo "DIBBS_BASE_URL=https://dibbs2.bsm.dla.mil" >> $GITHUB_ENV
+          echo "DIBBS_DOWNLOAD_DIR=./downloads" >> $GITHUB_ENV
+          echo "SELENIUM_HEADLESS=true" >> $GITHUB_ENV
+          echo "SELENIUM_TIMEOUT=30" >> $GITHUB_ENV
+          echo "LOG_LEVEL=INFO" >> $GITHUB_ENV
+          echo "LOG_FILE=./logs/etl.log" >> $GITHUB_ENV
+          echo "SUPABASE_BUCKET_NAME=docs" >> $GITHUB_ENV
+          
+          # Set target date (defaults to yesterday for scheduled runs)
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # For scheduled runs, use yesterday's date
+            YESTERDAY=$(date -d "yesterday" +%Y-%m-%d)
+            echo "TARGET_DATE=$YESTERDAY" >> $GITHUB_ENV
+            echo "Using yesterday's date for scheduled run: $YESTERDAY"
+          elif [ "${{ github.event.inputs.target_date }}" != "" ]; then
+            # For manual runs with specified date
+            echo "TARGET_DATE=${{ github.event.inputs.target_date }}" >> $GITHUB_ENV
+            echo "Using specified target date: ${{ github.event.inputs.target_date }}"
+          else
+            # For manual runs without specified date, use yesterday
+            YESTERDAY=$(date -d "yesterday" +%Y-%m-%d)
+            echo "TARGET_DATE=$YESTERDAY" >> $GITHUB_ENV
+            echo "Using yesterday's date for manual run: $YESTERDAY"
+          fi
+          
+      - name: Install Python dependencies
+        run: |
+          cd etl
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+      - name: Create necessary directories
+        run: |
+          cd etl
+          mkdir -p downloads logs
+          
+      - name: Execute DIBBS RFQ Index Data Pull Workflow
+        run: |
+          cd etl
+          
+          # Build command arguments
+          CMD_ARGS="python workflows/scheduled/dibbs_rfq_index_pull.py"
+          
+          # Add optional arguments
+          if [ "${{ github.event.inputs.force_refresh }}" = "true" ]; then
+            CMD_ARGS="$CMD_ARGS --force-refresh"
+          fi
+          
+          if [ "${{ github.event.inputs.verbose }}" = "true" ]; then
+            CMD_ARGS="$CMD_ARGS --verbose"
+          fi
+          
+          if [ "${{ github.event.inputs.target_date }}" != "" ]; then
+            CMD_ARGS="$CMD_ARGS --date ${{ github.event.inputs.target_date }}"
+          fi
+          
+          echo "Executing command: $CMD_ARGS"
+          echo "Workflow will download DIBBS RFQ index data from archive for date: $TARGET_DATE"
+          echo "Target URL format: https://dibbs2.bsm.dla.mil/Downloads/RFQ/Archive/in{yy}{mm}{dd}.txt"
+          
+          # Execute the workflow
+          eval $CMD_ARGS
+          
+      - name: Upload workflow logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dibbs-rfq-index-logs
+          path: |
+            etl/logs/
+            etl/downloads/
+          retention-days: 7
+          
+      - name: Upload workflow results
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dibbs-rfq-index-results
+          path: |
+            etl/workflow_results/
+          retention-days: 30
+          
+      - name: Summary
+        if: always()
+        run: |
+          echo "=== DIBBS RFQ Index Data Pull Workflow Summary ==="
+          echo "Workflow: DIBBS RFQ Index Scheduled Data Pull"
+          echo "Status: ${{ job.status }}"
+          echo "Schedule: Daily at 2:30 AM UTC"
+          echo "Data Source: DIBBS archive downloads"
+          echo "Target Date: $TARGET_DATE"
+          echo "URL Format: https://dibbs2.bsm.dla.mil/Downloads/RFQ/Archive/in{yy}{mm}{dd}.txt"
+          echo "Data Types Pulled:"
+          echo "  - RFQ Index text file from archive"
+          echo "  - Parsed RFQ data"
+          echo "Target Table: rfq_index_extract"
+          echo "Chrome Setup: Headless mode for automated downloads"
+          echo "Workflow Steps:"
+          echo "  1. Chrome Setup"
+          echo "  2. Archive Downloads Navigation"
+          echo "  3. Consent Page Handling"
+          echo "  4. Text File Download"
+          echo "  5. Text File Parsing"
+          echo "  6. Database Upsert"
+          echo "=================================================="

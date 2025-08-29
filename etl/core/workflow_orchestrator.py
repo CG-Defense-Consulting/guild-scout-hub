@@ -35,6 +35,11 @@ class WorkflowStep:
             self.depends_on = []
         if self.batch_config is None:
             self.batch_config = {}
+    
+    @property
+    def name(self) -> str:
+        """Get the name of this step (uses operation name)."""
+        return self.operation.name
 
 class WorkflowOrchestrator:
     """
@@ -92,66 +97,132 @@ class WorkflowOrchestrator:
         
         return self
     
-    def execute(self, initial_context: Optional[Dict[str, Any]] = None) -> List[OperationResult]:
+    def execute(self) -> Dict[str, Any]:
         """
-        Execute the workflow.
+        Execute the workflow by running all steps in dependency order.
         
-        Args:
-            initial_context: Initial context data to share between operations
-            
         Returns:
-            List of operation results
+            Dictionary containing status and results
         """
         try:
-            logger.info(f"Starting workflow execution: {self.name}")
-            self.status = WorkflowStatus.RUNNING
-            self.context = initial_context or {}
-            self.results = []
-            self.current_step_index = 0
+            logger.info(f"🚀 WORKFLOW: Starting workflow execution: {self.name}")
+            logger.info(f"🚀 WORKFLOW: Total steps: {len(self.steps)}")
+            logger.info(f"🚀 WORKFLOW: Steps: {[step.name for step in self.steps]}")
             
-            # Validate workflow
-            if not self._validate_workflow():
-                raise ValueError("Workflow validation failed")
+            # Initialize shared context
+            context = {}
+            logger.info(f"🚀 WORKFLOW: Initialized empty context")
             
-            # Execute steps in order
-            for i, step in enumerate(self.steps):
-                self.current_step_index = i
-                logger.info(f"Executing step {i + 1}/{len(self.steps)}: {step.operation.name}")
-                
-                # Check dependencies
-                if not self._check_dependencies(step):
-                    raise RuntimeError(f"Step {step.operation.name} dependencies not met")
-                
-                # Execute the step
-                if step.batch_config and step.operation.can_apply_to_batch():
-                    result = self._execute_batch_step(step)
-                else:
-                    result = step.operation.execute(step.inputs, self.context)
-                
-                self.results.append(result)
-                
-                # Update context with step results
-                self._update_context_with_result(step, result)
-                
-                # Check if step failed
-                if not result.success:
-                    logger.error(f"Step {step.operation.name} failed: {result.error}")
-                    self.status = WorkflowStatus.FAILED
-                    return self.results
-                
-                logger.info(f"Step {step.operation.name} completed successfully")
+            # Track completed steps and results
+            completed_steps = set()
+            results = []
             
-            # All steps completed successfully
-            self.status = WorkflowStatus.COMPLETED
-            logger.info(f"Workflow '{self.name}' completed successfully")
+            # Execute steps in dependency order
+            while len(completed_steps) < len(self.steps):
+                logger.info(f"🚀 WORKFLOW: Execution loop - completed: {len(completed_steps)}/{len(self.steps)}")
+                
+                # Find steps that can be executed (all dependencies satisfied)
+                executable_steps = []
+                for step in self.steps:
+                    if step.name in completed_steps:
+                        continue
+                    
+                    dependencies_satisfied = all(dep in completed_steps for dep in step.depends_on)
+                    if dependencies_satisfied:
+                        executable_steps.append(step)
+                        logger.info(f"🚀 WORKFLOW: Step '{step.name}' is executable (dependencies: {step.depends_on})")
+                    else:
+                        logger.info(f"🚀 WORKFLOW: Step '{step.name}' waiting for dependencies: {step.depends_on}")
+                
+                if not executable_steps:
+                    logger.error(f"❌ WORKFLOW: No executable steps found, but {len(self.steps) - len(completed_steps)} steps remain")
+                    logger.error(f"❌ WORKFLOW: This indicates a circular dependency or missing step")
+                    return {'status': WorkflowStatus.FAILED, 'results': results, 'error': 'Circular dependency detected'}
+                
+                # Execute executable steps
+                for step in executable_steps:
+                    logger.info(f"🚀 WORKFLOW: Executing step: {step.name}")
+                    logger.info(f"🚀 WORKFLOW: Step inputs: {step.inputs}")
+                    logger.info(f"🚀 WORKFLOW: Step dependencies: {step.depends_on}")
+                    logger.info(f"🚀 WORKFLOW: Step batch config: {step.batch_config}")
+                    
+                    try:
+                        # Execute the operation
+                        logger.info(f"🚀 WORKFLOW: Calling operation.execute() for {step.operation.name}")
+                        
+                        # Check if this is a batch operation
+                        if step.batch_config and step.operation.can_apply_to_batch():
+                            logger.info(f"🚀 WORKFLOW: Executing batch operation for {step.operation.name}")
+                            logger.info(f"🚀 WORKFLOW: Batch config: {step.batch_config}")
+                            
+                            # Get batch items
+                            batch_items = step.batch_config.get('items', [])
+                            logger.info(f"🚀 WORKFLOW: Processing {len(batch_items)} batch items")
+                            
+                            # Execute batch operation
+                            batch_results = step.operation.apply_to_batch(batch_items, step.inputs, context)
+                            logger.info(f"🚀 WORKFLOW: Batch operation completed with {len(batch_results)} results")
+                            
+                            # Create a combined result for the batch
+                            all_successful = all(r.success for r in batch_results)
+                            combined_metadata = {
+                                'batch_size': len(batch_items),
+                                'successful_items': sum(1 for r in batch_results if r.success),
+                                'failed_items': sum(1 for r in batch_results if not r.success),
+                                'individual_results': batch_results
+                            }
+                            
+                            result = OperationResult(
+                                success=all_successful,
+                                status=OperationStatus.COMPLETED if all_successful else OperationStatus.FAILED,
+                                data=[r.data for r in batch_results if r.data],
+                                metadata=combined_metadata
+                            )
+                        else:
+                            # Execute single operation
+                            result = step.operation.execute(step.inputs, context)
+                        
+                        logger.info(f"🚀 WORKFLOW: Operation {step.operation.name} completed with status: {result.status}")
+                        logger.info(f"🚀 WORKFLOW: Operation success: {result.success}")
+                        if result.error:
+                            logger.error(f"❌ WORKFLOW: Operation {step.operation.name} error: {result.error}")
+                        if result.metadata:
+                            logger.info(f"🚀 WORKFLOW: Operation {step.operation.name} metadata: {result.metadata}")
+                        
+                        # Store result
+                        results.append(result)
+                        
+                        # Check if operation was successful
+                        if not result.success:
+                            logger.error(f"❌ WORKFLOW: Step {step.name} failed: {result.error}")
+                            return {'status': WorkflowStatus.FAILED, 'results': results, 'error': result.error}
+                        
+                        # Store results in context for dependent steps
+                        if result.data:
+                            context[step.name] = result.data
+                            logger.info(f"🚀 WORKFLOW: Stored {step.name} data in context: {type(result.data)}")
+                        
+                        if result.metadata:
+                            context[f"{step.name}_metadata"] = result.metadata
+                            logger.info(f"🚀 WORKFLOW: Stored {step.name} metadata in context")
+                        
+                        # Mark step as completed
+                        completed_steps.add(step.name)
+                        logger.info(f"✅ WORKFLOW: Step {step.name} completed successfully")
+                        
+                    except Exception as e:
+                        logger.error(f"❌ WORKFLOW: Exception executing step {step.name}: {str(e)}")
+                        return {'status': WorkflowStatus.FAILED, 'results': results, 'error': str(e)}
+                
+                logger.info(f"🚀 WORKFLOW: Completed execution loop iteration")
             
-            return self.results
+            logger.info(f"✅ WORKFLOW: All steps completed successfully")
+            logger.info(f"✅ WORKFLOW: Final context keys: {list(context.keys())}")
+            return {'status': WorkflowStatus.COMPLETED, 'results': results, 'context': context}
             
         except Exception as e:
-            error_msg = f"Workflow execution failed: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            self.status = WorkflowStatus.FAILED
-            raise
+            logger.error(f"❌ WORKFLOW: Workflow execution failed: {str(e)}")
+            return {'status': WorkflowStatus.FAILED, 'results': results if 'results' in locals() else [], 'error': str(e)}
     
     def _validate_workflow(self) -> bool:
         """

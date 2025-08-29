@@ -1,14 +1,11 @@
 """
 Supabase Upload Operation
-
-This operation handles uploading batch results to Supabase database.
-It can process multiple AMSC extraction results and update the database efficiently.
+Handles uploading processed data to Supabase database with support for upsert operations
 """
 
+from typing import Dict, Any, List, Optional
 import logging
-from typing import Any, Dict, List, Optional
 from supabase import create_client, Client
-
 from .base_operation import BaseOperation, OperationResult, OperationStatus
 
 logger = logging.getLogger(__name__)
@@ -20,22 +17,30 @@ class SupabaseUploadOperation(BaseOperation):
     This operation:
     1. Connects to Supabase using environment variables
     2. Processes batch results from previous operations
-    3. Updates the database with AMSC codes and closed status
+    3. Supports both update and upsert operations
     4. Handles both individual and batch uploads
+    5. Can work with different table schemas
     """
     
     def __init__(self):
         """Initialize the Supabase upload operation."""
         super().__init__(
             name="supabase_upload",
-            description="Upload batch results to Supabase database"
+            description="Upload batch results to Supabase database with upsert support"
         )
         
         # Set required inputs
         self.set_required_inputs(['results'])
         
         # Set optional inputs
-        self.set_optional_inputs(['batch_size', 'table_name'])
+        self.set_optional_inputs([
+            'batch_size', 
+            'table_name', 
+            'operation_type', 
+            'upsert_strategy',
+            'conflict_resolution',
+            'key_fields'
+        ])
         
         # Initialize Supabase client
         self.supabase: Optional[Client] = None
@@ -72,11 +77,6 @@ class SupabaseUploadOperation(BaseOperation):
             service_role_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
             publishable_key = os.getenv('VITE_SUPABASE_PUBLISHABLE_KEY')
             
-            logger.info(f"Environment variables loaded:")
-            logger.info(f"  VITE_SUPABASE_URL: {'✓' if supabase_url else '✗'}")
-            logger.info(f"  SUPABASE_SERVICE_ROLE_KEY: {'✓' if service_role_key else '✗'}")
-            logger.info(f"  VITE_SUPABASE_PUBLISHABLE_KEY: {'✓' if publishable_key else '✗'}")
-            
             # Use service role key first, then fallback to publishable key
             supabase_key = service_role_key or publishable_key
             
@@ -98,15 +98,27 @@ class SupabaseUploadOperation(BaseOperation):
         
         Args:
             inputs: Operation inputs containing 'results' and optionally 'batch_size'
-            context: Shared context (not used for this operation)
+            context: Shared workflow context
             
         Returns:
             OperationResult with upload success status and metadata
         """
+        if not self.supabase:
+            return OperationResult(
+                success=False,
+                status=OperationStatus.FAILED,
+                error="Supabase client not initialized",
+                metadata={'client_initialized': False}
+            )
+            
         try:
             results = inputs['results']
             batch_size = inputs.get('batch_size', 50)
             table_name = inputs.get('table_name', 'rfq_index_extract')
+            operation_type = inputs.get('operation_type', 'upsert')  # 'upsert' or 'update'
+            upsert_strategy = inputs.get('upsert_strategy', 'merge')  # 'merge' or 'ignore'
+            conflict_resolution = inputs.get('conflict_resolution', 'update_existing')
+            key_fields = inputs.get('key_fields', ['id'])  # Fields to use for conflict resolution
             
             if not results:
                 logger.warning("No results to upload")
@@ -118,6 +130,10 @@ class SupabaseUploadOperation(BaseOperation):
                 )
             
             logger.info(f"Uploading {len(results)} results to Supabase table: {table_name}")
+            if operation_type == 'upsert':
+                logger.info(f"Operation type: {operation_type}, Strategy: {upsert_strategy}")
+            else:
+                logger.info(f"Operation type: {operation_type}")
             
             # Process results in batches
             successful_uploads = 0
@@ -128,7 +144,15 @@ class SupabaseUploadOperation(BaseOperation):
                 batch = results[i:i + batch_size]
                 logger.info(f"Processing batch {i//batch_size + 1}: {len(batch)} items")
                 
-                batch_results = self._upload_batch(batch, table_name)
+                if operation_type == 'upsert':
+                    batch_results = self._upsert_batch(batch, table_name, upsert_strategy, conflict_resolution, key_fields)
+                elif operation_type == 'update':
+                    # Use new update method for updating existing records by ID
+                    batch_results = self._update_batch_by_id(batch, table_name)
+                else:
+                    # Fallback to legacy update method for backward compatibility
+                    batch_results = self._upload_batch(batch, table_name)
+                
                 successful_uploads += batch_results['successful']
                 failed_uploads += batch_results['failed']
                 upload_errors.extend(batch_results['errors'])
@@ -146,7 +170,9 @@ class SupabaseUploadOperation(BaseOperation):
                 },
                 metadata={
                     'table_name': table_name,
-                    'batch_size_used': batch_size
+                    'batch_size_used': batch_size,
+                    'operation_type': operation_type,
+                    'upsert_strategy': upsert_strategy if operation_type == 'upsert' else None
                 }
             )
             
@@ -159,9 +185,104 @@ class SupabaseUploadOperation(BaseOperation):
                 error=error_msg
             )
     
+    def _upsert_batch(self, batch: List[Dict[str, Any]], table_name: str, 
+                      upsert_strategy: str, conflict_resolution: str, 
+                      key_fields: List[str]) -> Dict[str, Any]:
+        """
+        Upsert a batch of results to Supabase.
+        
+        Args:
+            batch: List of result dictionaries
+            table_name: Name of the table to upload to
+            upsert_strategy: Strategy for handling duplicates ('merge' or 'ignore')
+            conflict_resolution: How to resolve conflicts ('update_existing' or 'skip_existing')
+            key_fields: Fields to use for conflict resolution
+            
+        Returns:
+            Dictionary with upload results
+        """
+        successful = 0
+        failed = 0
+        errors = []
+        
+        for data in batch:
+            try:
+                
+                # Extract data from result
+                # data = result.get('data', {})
+                # print(data, 'within supabase upload')
+
+                upsert_success = self._perform_upsert(data, table_name, upsert_strategy, conflict_resolution, key_fields)
+                
+                if upsert_success:
+                    successful += 1
+                    logger.info(f"Successfully upserted record with keys: {[data.get(k) for k in key_fields]}")
+                else:
+                    failed += 1
+                    errors.append(f"Failed to upsert record with keys: {[data.get(k) for k in key_fields]}")
+                    
+            except Exception as e:
+                failed += 1
+                error_msg = f"Error processing result: {str(e)}"
+                errors.append(error_msg)
+                logger.error(error_msg)
+        
+        return {
+            'successful': successful,
+            'failed': failed,
+            'errors': errors
+        }
+    
+    def _perform_upsert(self, data: Dict[str, Any], table_name: str, 
+                        upsert_strategy: str, conflict_resolution: str, 
+                        key_fields: List[str]) -> bool:
+        """
+        Perform the actual upsert operation.
+        
+        Args:
+            data: Data to upsert
+            table_name: Name of the table
+            upsert_strategy: Strategy for handling duplicates
+            conflict_resolution: How to resolve conflicts
+            key_fields: Fields to use for conflict resolution
+            
+        Returns:
+            True if upsert successful, False otherwise
+        """
+        try:
+            if not self.supabase:
+                logger.error("Supabase client not initialized")
+                return False
+            
+            # Build the upsert query
+            query = self.supabase.table(table_name)
+            
+            if upsert_strategy == 'merge':
+                # Use upsert with conflict resolution
+                if conflict_resolution == 'update_existing':
+                    # Update existing records, insert new ones
+                    result = query.upsert(data, on_conflict=','.join(key_fields) if len(key_fields) > 0 else None).execute()
+                else:
+                    # Skip existing records, only insert new ones
+                    result = query.insert(data).execute()
+            else:  # ignore strategy
+                # Only insert if no conflicts
+                result = query.insert(data).execute()
+            
+            if result.data:
+                logger.debug(f"Upsert successful for keys: {[data.get(k) for k in key_fields]}")
+                return True
+            else:
+                logger.warning(f"No records affected for keys: {[data.get(k) for k in key_fields]}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error performing upsert: {str(e)}")
+            return False
+    
     def _upload_batch(self, batch: List[Dict[str, Any]], table_name: str) -> Dict[str, Any]:
         """
-        Upload a batch of results to Supabase.
+        Upload a batch of results to Supabase (legacy method for backward compatibility).
         
         Args:
             batch: List of result dictionaries
@@ -177,7 +298,7 @@ class SupabaseUploadOperation(BaseOperation):
         for result in batch:
             try:
                 if not result.get('success', False):
-                    logger.warning(f"Skipping failed result: {result.get('error', 'Unknown error')}")
+                    #logger.warning(f"Skipping failed result: {result.get('error', 'Unknown error')}")
                     failed += 1
                     continue
                 
@@ -217,10 +338,71 @@ class SupabaseUploadOperation(BaseOperation):
             'errors': errors
         }
     
+    def _update_batch_by_id(self, batch: List[Dict[str, Any]], table_name: str) -> Dict[str, Any]:
+        """
+        Update a batch of results in Supabase by ID (for universal contract queue workflow).
+        
+        Args:
+            batch: List of result dictionaries with 'id', 'cde_g', 'closed' fields
+            table_name: Name of the table to update
+            
+        Returns:
+            Dictionary with update results
+        """
+        successful = 0
+        failed = 0
+        errors = []
+        
+        for record in batch:
+            try:
+                # Extract data from record
+                record_id = record.get('id')
+                cde_g = record.get('cde_g')
+                closed = record.get('closed')
+                
+                if not record_id:
+                    logger.warning("No ID found in record, skipping")
+                    failed += 1
+                    continue
+                
+                # Prepare update data
+                update_data = {}
+                if cde_g is not None:
+                    update_data['cde_g'] = cde_g
+                if closed is not None:
+                    update_data['closed'] = closed
+                
+                if not update_data:
+                    logger.warning(f"No data to update for record {record_id}")
+                    failed += 1
+                    continue
+                
+                # Update the record by ID
+                result = self.supabase.table(table_name).update(update_data).eq('id', record_id).execute()
+                
+                if result.data:
+                    successful += 1
+                    logger.info(f"Successfully updated record {record_id} with data: {update_data}")
+                else:
+                    failed += 1
+                    errors.append(f"No records updated for ID {record_id}")
+                    
+            except Exception as e:
+                failed += 1
+                error_msg = f"Error updating record {record.get('id', 'unknown')}: {str(e)}"
+                errors.append(error_msg)
+                logger.error(error_msg)
+        
+        return {
+            'successful': successful,
+            'failed': failed,
+            'errors': errors
+        }
+    
     def _update_amsc_and_closed_status(self, contract_id: str, nsn: str, amsc_code: str, 
                                       is_closed: bool, table_name: str) -> bool:
         """
-        Update AMSC code and closed status in the database.
+        Update AMSC code and closed status in the database (legacy method).
         
         Args:
             contract_id: Contract ID to update
