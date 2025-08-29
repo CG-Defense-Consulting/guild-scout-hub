@@ -281,12 +281,14 @@ def execute_universal_contract_queue_workflow(
                     contract_data = next((c for c in contracts if c['id'] == contract_id), None)
                     
                     if contract_data and contract_data.get('solicitation_number'):
-                        upload_data.append({
+                        tmp = {
                             'solicitation_number': contract_data['solicitation_number'],
                             'national_stock_number': result['nsn'],
-                            'cde_g': result['amsc_code'],  # AMSC code goes in cde_g field
-                            'closed': result['is_closed'],  # Use 'closed' field name
-                        })
+                            'cde_g': result['amsc_code']# AMSC code goes in cde_g field
+                        }
+                        if result['is_closed'] is not None:
+                            tmp['closed'] = result['is_closed']
+                        upload_data.append(tmp)
                         logger.info(f"Prepared upload data for SN: {contract_data['solicitation_number']}, NSN: {result['nsn']}")
                     else:
                         logger.warning(f"Missing solicitation number for contract {contract_id}, skipping upload")
