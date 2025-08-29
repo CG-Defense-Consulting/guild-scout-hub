@@ -305,10 +305,7 @@ def execute_universal_contract_queue_workflow(
                     upload_result = upload_op._execute({
                         'results': upload_data,
                         'table_name': 'rfq_index_extract',
-                        'operation_type': 'upsert',
-                        'upsert_strategy': 'merge',
-                        'conflict_resolution': 'update_existing',
-                        # 'key_fields': ['solicitation_number', 'national_stock_number'],  # Use both fields as key
+                        'operation_type': 'update',  # Changed from 'upsert' to 'update'
                         'batch_size': 50
                     }, {})
                     

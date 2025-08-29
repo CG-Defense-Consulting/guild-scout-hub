@@ -77,11 +77,6 @@ class SupabaseUploadOperation(BaseOperation):
             service_role_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
             publishable_key = os.getenv('VITE_SUPABASE_PUBLISHABLE_KEY')
             
-            logger.info(f"Environment variables loaded:")
-            logger.info(f"  VITE_SUPABASE_URL: {'✓' if supabase_url else '✗'}")
-            logger.info(f"  SUPABASE_SERVICE_ROLE_KEY: {'✓' if service_role_key else '✗'}")
-            logger.info(f"  VITE_SUPABASE_PUBLISHABLE_KEY: {'✓' if publishable_key else '✗'}")
-            
             # Use service role key first, then fallback to publishable key
             supabase_key = service_role_key or publishable_key
             
@@ -123,7 +118,7 @@ class SupabaseUploadOperation(BaseOperation):
             operation_type = inputs.get('operation_type', 'upsert')  # 'upsert' or 'update'
             upsert_strategy = inputs.get('upsert_strategy', 'merge')  # 'merge' or 'ignore'
             conflict_resolution = inputs.get('conflict_resolution', 'update_existing')
-            key_fields = inputs.get('key_fields', ['national_stock_number'])  # Fields to use for conflict resolution
+            key_fields = inputs.get('key_fields', ['id'])  # Fields to use for conflict resolution
             
             if not results:
                 logger.warning("No results to upload")
@@ -135,7 +130,10 @@ class SupabaseUploadOperation(BaseOperation):
                 )
             
             logger.info(f"Uploading {len(results)} results to Supabase table: {table_name}")
-            logger.info(f"Operation type: {operation_type}, Strategy: {upsert_strategy}")
+            if operation_type == 'upsert':
+                logger.info(f"Operation type: {operation_type}, Strategy: {upsert_strategy}")
+            else:
+                logger.info(f"Operation type: {operation_type}")
             
             # Process results in batches
             successful_uploads = 0
@@ -148,6 +146,9 @@ class SupabaseUploadOperation(BaseOperation):
                 
                 if operation_type == 'upsert':
                     batch_results = self._upsert_batch(batch, table_name, upsert_strategy, conflict_resolution, key_fields)
+                elif operation_type == 'update':
+                    # Use new update method for updating existing records by ID
+                    batch_results = self._update_batch_by_id(batch, table_name)
                 else:
                     # Fallback to legacy update method for backward compatibility
                     batch_results = self._upload_batch(batch, table_name)
@@ -171,7 +172,7 @@ class SupabaseUploadOperation(BaseOperation):
                     'table_name': table_name,
                     'batch_size_used': batch_size,
                     'operation_type': operation_type,
-                    'upsert_strategy': upsert_strategy
+                    'upsert_strategy': upsert_strategy if operation_type == 'upsert' else None
                 }
             )
             
@@ -276,7 +277,7 @@ class SupabaseUploadOperation(BaseOperation):
                 # Use upsert with conflict resolution
                 if conflict_resolution == 'update_existing':
                     # Update existing records, insert new ones
-                    result = query.upsert(data, on_conflict=','.join(key_fields)).execute()
+                    result = query.upsert(data, on_conflict=','.join(key_fields) if len(key_fields) > 0 else None).execute()
                 else:
                     # Skip existing records, only insert new ones
                     result = query.insert(data).execute()
@@ -344,6 +345,67 @@ class SupabaseUploadOperation(BaseOperation):
             except Exception as e:
                 failed += 1
                 error_msg = f"Error processing result: {str(e)}"
+                errors.append(error_msg)
+                logger.error(error_msg)
+        
+        return {
+            'successful': successful,
+            'failed': failed,
+            'errors': errors
+        }
+    
+    def _update_batch_by_id(self, batch: List[Dict[str, Any]], table_name: str) -> Dict[str, Any]:
+        """
+        Update a batch of results in Supabase by ID (for universal contract queue workflow).
+        
+        Args:
+            batch: List of result dictionaries with 'id', 'cde_g', 'closed' fields
+            table_name: Name of the table to update
+            
+        Returns:
+            Dictionary with update results
+        """
+        successful = 0
+        failed = 0
+        errors = []
+        
+        for record in batch:
+            try:
+                # Extract data from record
+                record_id = record.get('id')
+                cde_g = record.get('cde_g')
+                closed = record.get('closed')
+                
+                if not record_id:
+                    logger.warning("No ID found in record, skipping")
+                    failed += 1
+                    continue
+                
+                # Prepare update data
+                update_data = {}
+                if cde_g is not None:
+                    update_data['cde_g'] = cde_g
+                if closed is not None:
+                    update_data['closed'] = closed
+                
+                if not update_data:
+                    logger.warning(f"No data to update for record {record_id}")
+                    failed += 1
+                    continue
+                
+                # Update the record by ID
+                result = self.supabase.table(table_name).update(update_data).eq('id', record_id).execute()
+                
+                if result.data:
+                    successful += 1
+                    logger.info(f"Successfully updated record {record_id} with data: {update_data}")
+                else:
+                    failed += 1
+                    errors.append(f"No records updated for ID {record_id}")
+                    
+            except Exception as e:
+                failed += 1
+                error_msg = f"Error updating record {record.get('id', 'unknown')}: {str(e)}"
                 errors.append(error_msg)
                 logger.error(error_msg)
         
