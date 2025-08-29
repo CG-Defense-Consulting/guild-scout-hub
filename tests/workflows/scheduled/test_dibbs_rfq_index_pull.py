@@ -89,6 +89,12 @@ class TestDibbsRfqIndexPull:
                     print(f"   File path: {result.get('file_path', 'N/A')}")
                     print(f"   Records that would be uploaded: {result.get('upload_result', {}).get('upserted_count', 0)}")
                     
+                    # CRITICAL: The workflow should have parsed some data
+                    records_processed = result.get('records_processed', 0)
+                    assert records_processed > 0, f"Workflow should have parsed data, but got 0 records. This indicates a parsing issue."
+                    
+                    print(f"✅ Successfully parsed {records_processed} records from index file")
+                    
                     # Verify the mock was called (but no real upload happened)
                     if mock_upload.called:
                         print("✅ Mock upload operation was called (preventing real database changes)")

@@ -6,12 +6,8 @@ It can be reused by any operation that needs to navigate through consent pages.
 """
 
 import logging
-import time
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
 
 from .base_operation import BaseOperation, OperationResult, OperationStatus
 
@@ -24,7 +20,7 @@ class ConsentPageOperation(BaseOperation):
     This operation:
     1. Detects if a consent page is present
     2. Clicks the appropriate consent button
-    3. Can be reused by any operation that needs consent handling
+    3. Can be reused by any operation that needs to consent handling
     """
     
     def __init__(self):
@@ -34,11 +30,58 @@ class ConsentPageOperation(BaseOperation):
             description="Handle DLA consent pages by clicking appropriate consent buttons"
         )
         
-        # Set required inputs
-        self.set_required_inputs(['nsn'])
+        # Set required inputs - NSN is optional now
+        self.set_required_inputs([])
         
         # Set optional inputs
-        self.set_optional_inputs(['timeout', 'retry_attempts', 'base_url'])
+        self.set_optional_inputs(['nsn', 'timeout', 'retry_attempts', 'base_url', 'handle_current_page'])
+    
+    def _check_page_changed(self, driver, original_url: str, original_title: str, original_source_length: int) -> bool:
+        """
+        Check if the page changed after clicking consent button.
+        
+        Args:
+            driver: Selenium WebDriver instance
+            original_url: URL before clicking consent button
+            original_title: Page title before clicking consent button
+            original_source_length: Length of page source before clicking consent button
+            
+        Returns:
+            True if page changed significantly, False otherwise
+        """
+        try:
+            current_url = driver.current_url
+            current_title = driver.title
+            current_source_length = len(driver.page_source)
+            
+            # Check if URL changed
+            if current_url != original_url:
+                logger.info(f"Page URL changed: {original_url} -> {current_url}")
+                return True
+            
+            # Check if title changed
+            if current_title != original_title:
+                logger.info(f"Page title changed: {original_title} -> {current_title}")
+                return True
+            
+            # Check if page source changed significantly (more than 10% difference)
+            source_diff = abs(current_source_length - original_source_length)
+            if source_diff > (original_source_length * 0.1):
+                logger.info(f"Page source changed significantly: {original_source_length} -> {current_source_length} chars")
+                return True
+            
+            # Check if we're no longer on a consent page
+            page_source = driver.page_source
+            if 'Department of Defense' not in page_source and 'Notice and Consent' not in page_source:
+                logger.info("Consent page content no longer present")
+                return True
+            
+            logger.warning("Page did not change after clicking consent button")
+            return False
+            
+        except Exception as e:
+            logger.warning(f"Error checking page change: {str(e)}")
+            return False
     
     def _execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> OperationResult:
         """
@@ -62,240 +105,66 @@ class ConsentPageOperation(BaseOperation):
             
             nsn = inputs.get('nsn')
             timeout = inputs.get('timeout', 30)
-            retry_attempts = inputs.get('retry_attempts', 3)
             base_url = inputs.get('base_url', 'https://www.dibbs.bsm.dla.mil')
+            handle_current_page = inputs.get('handle_current_page', True)
             
-            logger.info(f"🔄 CONSENT PAGE: Starting consent page handling for NSN: {nsn}")
-            logger.info(f"🔄 CONSENT PAGE: Using base URL: {base_url}")
-            logger.info(f"🔄 CONSENT PAGE: Timeout: {timeout}s, Retry attempts: {retry_attempts}")
+            # If NSN is provided and we're not handling current page, navigate to NSN page
+            if nsn and not handle_current_page:
+                nsn_url = f"{base_url}/rfq/rfqnsn.aspx?value={nsn}"
+                driver.get(nsn_url)
+                import time
+                time.sleep(1)
             
-            # Navigate to the NSN page
-            nsn_url = f"{base_url}/rfq/rfqnsn.aspx?value={nsn}"
-            logger.info(f"🔄 CONSENT PAGE: Navigating to NSN URL: {nsn_url}")
+            # Capture page state before clicking consent button
+            original_url = driver.current_url
+            original_title = driver.title
+            original_source_length = len(driver.page_source)
             
-            driver.get(nsn_url)
-            logger.info(f"🔄 CONSENT PAGE: Page loaded, current URL: {driver.current_url}")
-            
-            # Wait for page to load
-            time.sleep(1)  # Reduced from 2 seconds
-            logger.info(f"🔄 CONSENT PAGE: Waited 1 second for page load")
-            
-            # Check if we're on a consent page
-            logger.info(f"🔄 CONSENT PAGE: Checking for consent buttons...")
-            
-            # Look for various possible consent buttons
-            possible_buttons = [
-                "//input[@type='submit' and @value='Ok']",
-                "//input[@type='submit' and @value='OK']", 
-                "//input[@type='submit' and @value='I Agree']",
-                "//input[@type='submit' and @value='Accept']",
-                "//input[@type='submit' and @value='Continue']",
-                "//button[contains(text(), 'Ok')]",
-                "//button[contains(text(), 'OK')]",
-                "//button[contains(text(), 'I Agree')]",
-                "//button[contains(text(), 'Accept')]",
-                "//button[contains(text(), 'Continue')]"
+            # Look for consent button and click it
+            consent_selectors = [
+                "//input[@type='submit' and @value='OK']"
             ]
             
-            consent_elements = []
-            for selector in possible_buttons:
-                elements = driver.find_elements(By.XPATH, selector)
-                if elements:
-                    logger.info(f"🔄 CONSENT PAGE: Found button with selector: {selector}")
-                    consent_elements.extend(elements)
+            for selector in consent_selectors:
+                try:
+                    elements = driver.find_elements(By.XPATH, selector)
+                    if elements:
+                        logger.info(f"Found consent button: {selector}")
+                        elements[0].click()
+                        
+                        # Wait for page to process
+                        import time
+                        time.sleep(1)
+                        
+                        # Check if page changed
+                        if self._check_page_changed(driver, original_url, original_title, original_source_length):
+                            logger.info("Consent button click successful - page changed")
+                            return OperationResult(
+                                success=True,
+                                status=OperationStatus.COMPLETED,
+                                metadata={'nsn': nsn, 'consent_passed': True, 'final_url': driver.current_url}
+                            )
+                        else:
+                            logger.error("Consent button click failed - page did not change")
+                            return OperationResult(
+                                success=False,
+                                status=OperationStatus.FAILED,
+                                error="Consent button clicked but page did not change"
+                            )
+                except Exception as e:
+                    logger.warning(f"Error with selector {selector}: {str(e)}")
+                    continue
             
-            logger.info(f"🔄 CONSENT PAGE: Found {len(consent_elements)} total consent elements")
-            
-            # Log page source for debugging
-            page_source = driver.page_source
-            logger.info(f"🔄 CONSENT PAGE: Page source length: {len(page_source)}")
-            logger.info(f"🔄 CONSENT PAGE: Page title: {driver.title}")
-            
-            if consent_elements:
-                logger.info(f"🔄 CONSENT PAGE: Consent page detected, clicking first button")
-                consent_elements[0].click()
-                logger.info(f"🔄 CONSENT PAGE: Button clicked")
-                
-                # Wait for redirect
-                time.sleep(2)  # Reduced from 5 seconds
-                logger.info(f"🔄 CONSENT PAGE: Waited 2 seconds after consent, current URL: {driver.current_url}")
-                
-                # Check if we're now on the actual NSN page
-                if "rfqnsn.aspx" in driver.current_url and nsn in driver.current_url:
-                    logger.info(f"✅ CONSENT PAGE: Successfully passed consent page for NSN: {nsn}")
-                    return OperationResult(
-                        success=True,
-                        status=OperationStatus.COMPLETED,
-                        metadata={'nsn': nsn, 'consent_passed': True, 'final_url': driver.current_url}
-                    )
-                else:
-                    logger.warning(f"⚠️ CONSENT PAGE: Consent passed but URL doesn't match expected NSN page")
-                    logger.warning(f"⚠️ CONSENT PAGE: Expected to contain 'rfqnsn.aspx' and NSN: {nsn}, Current URL: {driver.current_url}")
-                    logger.warning(f"⚠️ CONSENT PAGE: Page title after consent: {driver.title}")
-                    
-                    # Check if we're still on consent page
-                    if "dodwarning" in driver.current_url:
-                        logger.error(f"❌ CONSENT PAGE: Still on consent page after clicking button")
-                        return OperationResult(
-                            success=False,
-                            status=OperationStatus.FAILED,
-                            error=f"Consent button clicked but still on consent page: {driver.current_url}"
-                        )
-                    
-                    return OperationResult(
-                        success=False,
-                        status=OperationStatus.FAILED,
-                        error=f"Consent passed but redirected to unexpected URL: {driver.current_url}"
-                    )
-            else:
-                logger.info(f"✅ CONSENT PAGE: No consent page detected for NSN: {nsn}, proceeding directly")
-                logger.info(f"✅ CONSENT PAGE: Current page title: {driver.title}")
-                logger.info(f"✅ CONSENT PAGE: Current page source length: {len(driver.page_source)}")
-                
-                return OperationResult(
-                    success=True,
-                    status=OperationStatus.COMPLETED,
-                    metadata={'nsn': nsn, 'consent_passed': False, 'final_url': driver.current_url}
-                )
+            # No consent page found
+            return OperationResult(
+                success=True,
+                status=OperationStatus.COMPLETED,
+                metadata={'nsn': nsn, 'consent_passed': False, 'final_url': driver.current_url}
+            )
                 
         except Exception as e:
-            logger.error(f"❌ CONSENT PAGE: Error handling consent page for NSN {nsn}: {str(e)}")
             return OperationResult(
                 success=False,
                 status=OperationStatus.FAILED,
                 error=f"Consent page operation failed: {str(e)}"
             )
-    
-    def _handle_consent_page(self, driver, timeout: int, custom_selectors: Optional[list] = None) -> bool:
-        """
-        Handle DLA consent page if it appears.
-        
-        Args:
-            driver: Selenium WebDriver instance
-            timeout: Timeout for consent page operations
-            custom_selectors: Optional custom selectors for consent buttons
-            
-        Returns:
-            True if consent handled successfully, False if no consent page found
-        """
-        try:
-            wait = WebDriverWait(driver, timeout)
-            
-            # Use custom selectors if provided, otherwise use defaults
-            if custom_selectors:
-                consent_selectors = custom_selectors
-            else:
-                consent_selectors = [
-                    "//button[contains(text(), 'Ok')]",
-                    "//button[contains(text(), 'OK')]",
-                    "//button[contains(text(), 'Accept')]",
-                    "//button[contains(text(), 'I Accept')]",
-                    "//button[contains(text(), 'I Agree')]",
-                    "//input[@type='submit' and contains(@value, 'Ok')]",
-                    "//input[@type='submit' and contains(@value, 'OK')]",
-                    "//input[@type='submit' and contains(@value, 'Accept')]",
-                    "//input[@type='submit' and contains(@value, 'I Accept')]",
-                    "//input[@type='submit' and contains(@value, 'I Agree')]",
-                    "//a[contains(text(), 'Ok')]",
-                    "//a[contains(text(), 'OK')]",
-                    "//a[contains(text(), 'Accept')]"
-                ]
-            
-            # Check for consent page indicators
-            consent_indicators = [
-                "//*[contains(text(), 'consent')]",
-                "//*[contains(text(), 'Consent')]",
-                "//*[contains(text(), 'accept')]",
-                "//*[contains(text(), 'Accept')]",
-                "//*[contains(text(), 'agree')]",
-                "//*[contains(text(), 'Agree')]"
-            ]
-            
-            # First, check if we're on a consent page
-            consent_page_detected = False
-            for indicator in consent_indicators:
-                try:
-                    element = driver.find_element(By.XPATH, indicator)
-                    if element.is_displayed():
-                        consent_page_detected = True
-                        logger.info(f"Consent page detected with indicator: {indicator}")
-                        break
-                except:
-                    continue
-            
-            # If no consent page detected, return False
-            if not consent_page_detected:
-                return False
-            
-            # Try to find and click consent button
-            for selector in consent_selectors:
-                try:
-                    consent_button = wait.until(EC.element_to_be_clickable((By.XPATH, selector)))
-                    logger.info(f"Found consent button using selector: {selector}")
-                    
-                    # Click the consent button
-                    consent_button.click()
-                    logger.info("Consent button clicked successfully")
-                    
-                    # Wait a moment for the page to process
-                    import time
-                    time.sleep(1)
-                    
-                    return True
-                    
-                except TimeoutException:
-                    continue
-            
-            # If we get here, we detected a consent page but couldn't handle it
-            logger.warning("Consent page detected but no consent button found")
-            return False
-            
-        except Exception as e:
-            logger.warning(f"Error handling consent page: {str(e)}")
-            return False
-    
-    def can_apply_to_batch(self) -> bool:
-        """
-        Consent page operation can be applied to batches.
-        
-        Returns:
-            True - this operation supports batch processing
-        """
-        return True
-    
-    def apply_to_batch(self, items: List[Any], inputs: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> List[OperationResult]:
-        """
-        Apply consent page handling to a batch of URLs or pages.
-        
-        Args:
-            items: List of URLs or page identifiers to process
-            inputs: Dictionary of inputs for this operation
-            context: Optional context data shared across operations
-            
-        Returns:
-            List of OperationResult for each item
-        """
-        if context is None:
-            context = {}
-        
-        results = []
-        total_items = len(items)
-        
-        logger.info(f"Processing batch of {total_items} items for consent page handling")
-        
-        for i, item in enumerate(items, 1):
-            logger.info(f"Processing item {i}/{total_items}")
-            
-            # Create item-specific inputs
-            item_inputs = inputs.copy()
-            if isinstance(item, str) and item.startswith('http'):
-                item_inputs['url'] = item
-            else:
-                item_inputs['nsn'] = item  # Set 'nsn' input for NSN processing
-            
-            # Execute operation for this item
-            result = self.execute(item_inputs, context)
-            results.append(result)
-        
-        logger.info(f"Batch processing completed. {len([r for r in results if r.success])}/{total_items} successful")
-        return results

@@ -89,19 +89,8 @@ class DibbsTextFileDownloadOperation(BaseOperation):
                 filename = f"dibbs_rfq_index_{current_date}.txt"
                 logger.info(f"🔍 TEXT FILE DOWNLOAD: Generated filename: {filename}")
             
-            # Set up Chrome download preferences
-            driver.execute_script("""
-                var downloadBehavior = {
-                    'default_directory': arguments[0],
-                    'prompt_for_download': false,
-                    'directory_upgrade': true
-                };
-                chrome.downloads.onChanged.addListener(function(downloadDelta) {
-                    if (downloadDelta.state && downloadDelta.state.current === 'complete') {
-                        console.log('Download completed:', downloadDelta.id);
-                    }
-                });
-            """, download_dir)
+            # Note: Chrome download preferences are not needed for direct text content extraction
+            # We'll get the content directly from the page source
             
             # The current page should be a direct download link
             # For text files, we can either:
