@@ -286,7 +286,6 @@ def execute_universal_contract_queue_workflow(
                             'national_stock_number': result['nsn'],
                             'cde_g': result['amsc_code'],  # AMSC code goes in cde_g field
                             'closed': result['is_closed'],  # Use 'closed' field name
-                            'processed_at': 'now()'
                         })
                         logger.info(f"Prepared upload data for SN: {contract_data['solicitation_number']}, NSN: {result['nsn']}")
                     else:
