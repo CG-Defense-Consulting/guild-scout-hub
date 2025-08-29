@@ -278,7 +278,7 @@ def execute_universal_contract_queue_workflow(
             queue_update_data = []
             
             for result in results:
-                if result['success'] and not result.get('skipped', False):
+                if result['success']:# and not result.get('skipped', False):
                     # Get the solicitation number from the original contract data
                     contract_id = result['contract_id']
                     contract_data = next((c for c in contracts if c['id'] == contract_id), None)
