@@ -308,7 +308,7 @@ def execute_universal_contract_queue_workflow(
                         'operation_type': 'upsert',
                         'upsert_strategy': 'merge',
                         'conflict_resolution': 'update_existing',
-                        'key_fields': ['solicitation_number', 'national_stock_number'],  # Use both fields as key
+                        # 'key_fields': ['solicitation_number', 'national_stock_number'],  # Use both fields as key
                         'batch_size': 50
                     }, {})
                     

@@ -170,6 +170,7 @@ def debug_upsert_step():
                     # Simulate the workflow's data preparation
                     if rie_data.get('solicitation_number') and rie_data.get('national_stock_number'):
                         upload_record = {
+                            'id': contract_id,
                             'solicitation_number': rie_data['solicitation_number'],
                             'national_stock_number': rie_data['national_stock_number'],
                             'cde_g': 'TEST-AMSC',  # Test value
@@ -188,7 +189,7 @@ def debug_upsert_step():
                         'operation_type': 'upsert',
                         'upsert_strategy': 'merge',
                         'conflict_resolution': 'update_existing',
-                        'key_fields': ['solicitation_number', 'national_stock_number'],
+                        # 'key_fields': ['solicitation_number', 'national_stock_number'],
                         'batch_size': 50
                     }, {})
                     
